@@ -1,0 +1,320 @@
+(() => {
+  const ROUTE_COLORS=['#B94A3E','#28796F','#8863A8','#BD7D25','#4775A6','#B14E79','#4A8192','#8B6539','#6575A8','#6F8740','#A05E42','#59636D'];
+  const ROUTES='ABCDEFHIJKLM'.split('');
+  const dirs=[{x:1,y:0,icon:'➤',name:'direita'},{x:0,y:1,icon:'▼',name:'baixo'},{x:-1,y:0,icon:'◀',name:'esquerda'},{x:0,y:-1,icon:'▲',name:'cima'}];
+  const mazeEl=document.querySelector('#maze');
+  const mainEl=document.querySelector('main');
+  const pondCanvas=document.querySelector('#bg');
+  const programEl=document.querySelector('#program');
+  const statusEl=document.querySelector('#status');
+  const countEl=document.querySelector('#block-count');
+  const teamTitle=document.querySelector('#team-title');
+  const teamSelectors=document.querySelector('#team-selectors');
+  const teamPickerToggle=document.querySelector('#team-picker-toggle');
+  const teamPickerLabel=document.querySelector('#team-picker-label');
+  const teamPickerDot=document.querySelector('#team-picker-dot');
+  const setupSize=document.querySelector('#setup-size');
+  const setupTeams=document.querySelector('#setup-teams');
+  const sleep=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+  const commandNames={forward:'Avançar',left:'Virar à esquerda',right:'Virar à direita'};
+  const teamPrograms=Array.from({length:12},()=>[]);
+  let size=33;
+  let center=(size-1)/2;
+  let teamCount=5;
+  let mazeGrid=[];
+  let mazeCells=[];
+  let mazeSeed=0;
+  let seedCode='';
+  let routeData=[];
+  let goal={x:center,y:center};
+  let activeTeam=0;
+  let blocks=teamPrograms[0];
+  let player={x:0,y:0,dir:0};
+  let displayedPlayer=null;
+  let busy=false;
+  let rowNodes=new Map();
+  let failedPath=null;
+  let solutionCache=[];
+  let simulatingAll=false;
+  let stopAllRequested=false;
+  const demoSpeeds=[0.5,1,2,5];
+  let demoSpeedIndex=1;
+  const fitPond=()=>{pondCanvas.style.height=`${mainEl.scrollHeight}px`;};
+  fitPond();
+  new ResizeObserver(fitPond).observe(mainEl);
+
+  function mulberry32(seed){let value=seed>>>0;return()=>{value+=0x6D2B79F5;let t=value;t=Math.imul(t^(t>>>15),t|1);t^=t+Math.imul(t^(t>>>7),t|61);return((t^(t>>>14))>>>0)/4294967296;};}
+  function keyOf(x,y){return`${x},${y}`;}
+  function pointOf(key){return key.split(',').map(Number);}
+  function buildGraph(){
+    const nodes=[];const nodeSet=new Set();
+    for(let y=1;y<size-1;y+=2)for(let x=1;x<size-1;x+=2){const key=keyOf(x,y);nodes.push(key);nodeSet.add(key);}
+    const adjacency=new Map(nodes.map(key=>[key,[]]));
+    for(const key of nodes){const [x,y]=pointOf(key);for(const [dx,dy] of [[2,0],[-2,0],[0,2],[0,-2]]){const next=keyOf(x+dx,y+dy);if(nodeSet.has(next))adjacency.get(key).push(next);}}
+    return{nodes,nodeSet,adjacency};
+  }
+  function perimeterNodes(graph){
+    const edge=size-2;const points=[];
+    for(let x=1;x<=edge;x+=2)points.push(keyOf(x,1));
+    for(let y=3;y<=edge;y+=2)points.push(keyOf(edge,y));
+    for(let x=edge-2;x>=1;x-=2)points.push(keyOf(x,edge));
+    for(let y=edge-2;y>1;y-=2)points.push(keyOf(1,y));
+    return points.filter(key=>graph.nodeSet.has(key));
+  }
+  function generateMaze(seed){
+    const graph=buildGraph();const random=mulberry32(seed);const root=keyOf(center%2===1?center:center-1,center%2===1?center:center-1);const edgeNodes=perimeterNodes(graph);const goalPoint=pointOf(root);let best=null;
+    function pathFrom(start,grid){
+      const origin=keyOf(start.x,start.y),target=keyOf(goalPoint[0],goalPoint[1]);const previous=new Map([[origin,null]]);const queue=[origin];
+      for(let cursor=0;cursor<queue.length&&!previous.has(target);cursor++){const current=queue[cursor];const [x,y]=pointOf(current);for(const direction of dirs){const nx=x+direction.x,ny=y+direction.y,next=keyOf(nx,ny);if(previous.has(next)||!grid[ny]||grid[ny][nx]==='#')continue;previous.set(next,current);queue.push(next);}}
+      if(!previous.has(target))return[];const path=[];for(let current=target;current!==null;current=previous.get(current))path.push(pointOf(current));return path.reverse();
+    }
+    for(let attempt=0;attempt<10;attempt++){
+      const parent=new Map([[root,null]]);const stack=[root];
+      while(stack.length){const current=stack[stack.length-1];const choices=graph.adjacency.get(current).filter(next=>!parent.has(next));if(!choices.length){stack.pop();continue;}const next=choices[Math.floor(random()*choices.length)];parent.set(next,current);stack.push(next);}
+      const grid=Array.from({length:size},()=>Array(size).fill('#'));
+      for(const key of parent.keys()){const [x,y]=pointOf(key);grid[y][x]='.';}
+      for(const [key,previous] of parent){if(!previous)continue;const [x,y]=pointOf(key),[px,py]=pointOf(previous);grid[(y+py)/2][(x+px)/2]='.';}
+      const braidRadius=Math.max(4,Math.floor(size*.22));
+      for(const key of graph.nodes){const [x,y]=pointOf(key);for(const [dx,dy] of [[2,0],[0,2]]){const next=keyOf(x+dx,y+dy);if(!graph.nodeSet.has(next)||parent.get(key)===next||parent.get(next)===key)continue;const distanceFromCenter=Math.abs(x-goalPoint[0])+Math.abs(y-goalPoint[1]);const centrality=Math.max(0,1-distanceFromCenter/(braidRadius*2));if(random()<.025+.48*centrality)grid[y+dy/2][x+dx/2]='.';}}
+      const starts=[];for(let index=0;index<teamCount;index++){const [x,y]=pointOf(edgeNodes[Math.floor(index*edgeNodes.length/teamCount)]);starts.push({id:ROUTES[index],x,y,dir:0,color:ROUTE_COLORS[index]});}
+      const paths=starts.map(route=>pathFrom(route,grid));if(paths.some(path=>!path.length))continue;
+      const lengths=paths.map(path=>path.length-1);const minLength=Math.min(...lengths),maxLength=Math.max(...lengths);let shared=0,pairs=0;
+      for(let a=0;a<paths.length;a++)for(let b=a+1;b<paths.length;b++){const cells=new Set(paths[a].slice(1,-1).map(([x,y])=>keyOf(x,y)));const overlap=paths[b].slice(1,-1).filter(([x,y])=>cells.has(keyOf(x,y))).length;shared+=overlap/Math.max(1,Math.min(lengths[a],lengths[b]));pairs++;}
+      const score=(pairs?shared/pairs:0)+Math.max(0,maxLength/Math.max(1,minLength)-1)*.55;
+      if(!best||score<best.score){for(let index=0;index<starts.length;index++){const [sx,sy]=paths[index][0],[nx,ny]=paths[index][1]||paths[index][0];starts[index].dir=dirs.findIndex(direction=>direction.x===nx-sx&&direction.y===ny-sy);}
+        grid[goalPoint[1]][goalPoint[0]]='G';for(const route of starts)grid[route.y][route.x]=route.id;best={grid,starts,goal:{x:goalPoint[0],y:goalPoint[1]},score};}
+    }
+    return best;
+  }
+  function activeRoute(){return routeData[activeTeam];}
+  function restoreCell(x,y){const cell=mazeCells[y]?.[x];if(!cell)return;cell.classList.remove('player');const value=mazeGrid[y][x];cell.textContent=value==='.'?'':value==='G'?'✦':value;const route=routeData.find(item=>item.id===value);if(route)cell.style.setProperty('--team-color',route.color);else cell.style.removeProperty('--team-color');}
+  function updateExplorer(){if(displayedPlayer)restoreCell(displayedPlayer.x,displayedPlayer.y);const cell=mazeCells[player.y]?.[player.x];if(cell){cell.classList.add('player');cell.textContent=dirs[player.dir].icon;cell.style.setProperty('--team-color',activeRoute().color);}displayedPlayer={x:player.x,y:player.y};mazeEl.setAttribute('aria-label',`Labirinto quadrado de ${size} por ${size}. Equipe ${activeTeam+1}, saída ${activeRoute().id}. Explorador na linha ${player.y+1}, coluna ${player.x+1}, voltado para ${dirs[player.dir].name}. Objetivo no centro.`);}
+  function drawMaze(){mazeEl.replaceChildren();mazeEl.style.setProperty('--maze-size',size);mazeCells=Array.from({length:size},()=>[]);displayedPlayer=null;mazeGrid.forEach((row,y)=>row.forEach((value,x)=>{const cell=document.createElement('div');cell.className='cell';if(value==='#')cell.classList.add('wall');else if(value==='G'){cell.classList.add('goal');cell.textContent='✦';}else if(ROUTES.includes(value)){const route=routeData.find(item=>item.id===value);cell.classList.add('start');cell.textContent=value;cell.style.setProperty('--team-color',route.color);cell.setAttribute('aria-label',`Saída ${value}`);}mazeCells[y][x]=cell;mazeEl.append(cell);}));updateExplorer();}
+  function drawRouteLegend(){const legend=document.querySelector('#route-legend');legend.replaceChildren();routeData.forEach((route,index)=>{const item=document.createElement('span');item.style.setProperty('--team-color',route.color);const swatch=document.createElement('i');swatch.className='route-swatch';swatch.textContent=route.id;item.append(swatch,document.createTextNode(` Equipe ${index+1}`));legend.append(item);});}
+  function resetTeamPlayer(){const route=activeRoute();player={x:route.x,y:route.y,dir:route.dir};updateExplorer();}
+  const CONFIG_RADIX=154n;
+  function encodeSeedCode(randomSeed,mazeSize,teams){const sizeIndex=(mazeSize-15)/2;const config=sizeIndex*11+(teams-2);return(BigInt(randomSeed)*CONFIG_RADIX+BigInt(config)).toString(36).padStart(8,'0');}
+  function decodeSeedCode(value){
+    const code=String(value).trim().toLowerCase();if(!/^[0-9a-z]{1,8}$/.test(code))return null;
+    let packed=0n;for(const character of code)packed=packed*36n+BigInt(parseInt(character,36));
+    const config=Number(packed%CONFIG_RADIX),randomSeed=Number(packed/CONFIG_RADIX),sizeIndex=Math.floor(config/11),teams=config%11+2;
+    if(randomSeed<1||randomSeed>4294967295||sizeIndex>13)return null;
+    return{code:code.padStart(8,'0'),seed:randomSeed,size:15+sizeIndex*2,teams};
+  }
+  function randomSeed(){const values=new Uint32Array(1);if(globalThis.crypto?.getRandomValues)crypto.getRandomValues(values);return values[0]||Math.floor(Math.random()*4294967295)+1;}
+  function activateMaze(code,updateAddress=true){
+    const config=decodeSeedCode(code);if(!config){document.querySelector('#join-error').textContent='Código inválido. Use de 1 a 8 caracteres entre 0–9 e a–z.';return false;}
+    size=config.size;center=(size-1)/2;teamCount=config.teams;seedCode=config.code;document.querySelector('#join-error').textContent='';
+    setNewMaze(config.seed,true);document.querySelector('#welcome').hidden=true;mainEl.classList.add('game-ready');
+    const params=new URLSearchParams(location.search);if(updateAddress)mainEl.classList.remove('guest-view');else if(params.get('view')==='play'||(!params.has('view')&&(params.has('seed')||params.has('code'))))mainEl.classList.add('guest-view');else mainEl.classList.remove('guest-view');
+    if(updateAddress&&['http:','https:'].includes(location.protocol)){const address=new URL(location.href);address.search='';address.searchParams.set('seed',seedCode);address.searchParams.set('view','host');history.replaceState(null,'',address);}
+    return true;
+  }
+  function setNewMaze(seed,clearPrograms=false){
+    clearHighlights();mazeSeed=(Math.abs(Math.trunc(Number(seed)))||Math.floor(Math.random()*2147483646)+1)>>>0;
+    solutionCache=[];
+    const generated=generateMaze(mazeSeed);mazeGrid=generated.grid;routeData=generated.starts;goal=generated.goal;
+    if(clearPrograms){teamPrograms.forEach((_,index)=>teamPrograms[index]=[]);activeTeam=0;}
+    activeTeam=Math.min(activeTeam,teamCount-1);blocks=teamPrograms[activeTeam];document.querySelector('#maze-seed-code').textContent=seedCode;document.querySelector('#maze-dimensions-copy').textContent=`${size} × ${size}`;document.querySelector('#team-total').textContent=String(teamCount);document.querySelector('#team-total').setAttribute('aria-label',`${teamCount} equipes`);
+    teamTitle.textContent=`Equipe ${activeTeam+1} · Saída ${activeRoute().id}`;
+    drawRouteLegend();renderTeamSelectors();resetTeamPlayer();drawMaze();drawProgram();setStatus(`Labirinto ${size} × ${size} gerado com ${teamCount} equipes igualmente distribuídas.`);
+  }
+  function renderTeamSelectors(){
+    teamSelectors.replaceChildren();const activeRouteData=routeData[activeTeam];
+    teamPickerLabel.textContent=activeRouteData.id;teamPickerDot.style.setProperty('--team-color',activeRouteData.color);teamPickerToggle.style.setProperty('--team-color',activeRouteData.color);teamPickerToggle.setAttribute('aria-label',`Equipe ${activeTeam+1}, saída ${activeRouteData.id}. Escolher equipe`);
+    for(let index=0;index<teamCount;index++){const route=routeData[index];const button=document.createElement('button');button.type='button';button.className='team-selector';button.dataset.team=String(index);button.style.setProperty('--team-color',route.color);button.setAttribute('aria-pressed',String(index===activeTeam));button.setAttribute('aria-label',`Selecionar equipe ${index+1}, saída ${route.id}`);const dot=document.createElement('i');dot.className='team-dot';dot.setAttribute('aria-hidden','true');const label=document.createElement('b');label.className='team-route-label';label.textContent=route.id;button.append(dot,label);teamSelectors.append(button);}
+  }
+  function closeTeamPicker(returnFocus=false){teamSelectors.hidden=true;teamPickerToggle.setAttribute('aria-expanded','false');if(returnFocus)teamPickerToggle.focus();}
+  teamPickerToggle.addEventListener('click',()=>{const open=teamPickerToggle.getAttribute('aria-expanded')==='true';teamSelectors.hidden=open;teamPickerToggle.setAttribute('aria-expanded',String(!open));if(!open)teamSelectors.querySelector('[data-team][aria-pressed="true"]')?.focus();});
+  document.addEventListener('click',event=>{if(!event.target.closest('.team-picker'))closeTeamPicker();});
+  teamPickerToggle.addEventListener('keydown',event=>{if(event.key==='ArrowDown'){event.preventDefault();teamSelectors.hidden=false;teamPickerToggle.setAttribute('aria-expanded','true');teamSelectors.querySelector('[data-team][aria-pressed="true"]')?.focus();}});
+  teamSelectors.addEventListener('keydown',event=>{const options=[...teamSelectors.querySelectorAll('[data-team]')];const index=options.indexOf(event.target.closest('[data-team]'));if(event.key==='Escape'){event.preventDefault();closeTeamPicker(true);}else if(event.key==='ArrowDown'||event.key==='ArrowRight'){event.preventDefault();options[(index+1)%options.length]?.focus();}else if(event.key==='ArrowUp'||event.key==='ArrowLeft'){event.preventDefault();options[(index-1+options.length)%options.length]?.focus();}else if(event.key==='Home'){event.preventDefault();options[0]?.focus();}else if(event.key==='End'){event.preventDefault();options.at(-1)?.focus();}});
+  teamSelectors.addEventListener('click',event=>{const button=event.target.closest('[data-team]');if(!button||busy)return;activeTeam=Number(button.dataset.team);blocks=teamPrograms[activeTeam];clearHighlights();teamTitle.textContent=`Equipe ${activeTeam+1} · Saída ${activeRoute().id}`;renderTeamSelectors();closeTeamPicker(true);resetTeamPlayer();drawProgram();setStatus(`Equipe ${activeTeam+1} selecionada. O programa desta equipe foi carregado.`);});
+  document.querySelector('#new-maze').addEventListener('click',()=>{if(busy)return;activateMaze(encodeSeedCode(randomSeed(),size,teamCount));});
+  setupSize.addEventListener('input',()=>{document.querySelector('#setup-size-value').textContent=`${setupSize.value} × ${setupSize.value}`;});
+  setupTeams.addEventListener('input',()=>{document.querySelector('#setup-teams-value').textContent=setupTeams.value;});
+  document.querySelector('#generate-maze').addEventListener('click',()=>activateMaze(encodeSeedCode(randomSeed(),Number(setupSize.value),Number(setupTeams.value))));
+  const codeSlots=[...document.querySelectorAll('.code-slot')];
+  function readJoinCode(){return codeSlots.map(input=>input.value).join('');}
+  function submitJoinCode(){const code=readJoinCode();if(code.length!==8){document.querySelector('#join-error').textContent='Preencha os oito caracteres do código.';return;}activateMaze(code);}
+  function fillCodeSlots(start,value){const chars=value.toLowerCase().replace(/[^0-9a-z]/g,'').slice(0,8-start);chars.split('').forEach((character,offset)=>{codeSlots[start+offset].value=character;});const next=Math.min(start+chars.length,7);codeSlots[next].focus();document.querySelector('#join-error').textContent='';if(readJoinCode().length===8)submitJoinCode();}
+  codeSlots.forEach((input,index)=>{
+    input.addEventListener('input',()=>{input.value=input.value.toLowerCase().replace(/[^0-9a-z]/g,'').slice(-1);document.querySelector('#join-error').textContent='';if(input.value&&index<7)codeSlots[index+1].focus();if(input.value&&readJoinCode().length===8)submitJoinCode();});
+    input.addEventListener('keydown',event=>{if(event.key==='Backspace'&&!input.value&&index>0){event.preventDefault();codeSlots[index-1].value='';codeSlots[index-1].focus();}else if(event.key==='ArrowLeft'&&index>0){event.preventDefault();codeSlots[index-1].focus();}else if(event.key==='ArrowRight'&&index<7){event.preventDefault();codeSlots[index+1].focus();}else if(event.key==='Enter'){event.preventDefault();submitJoinCode();}});
+    input.addEventListener('paste',event=>{event.preventDefault();const value=event.clipboardData.getData('text').toLowerCase().replace(/[^0-9a-z]/g,'');fillCodeSlots(value.length>=8?0:index,value);});
+  });
+  document.querySelector('#join-maze').addEventListener('click',submitJoinCode);
+  const incomingCode=new URLSearchParams(location.search).get('seed')||new URLSearchParams(location.search).get('code');
+  if(incomingCode){if(!activateMaze(incomingCode,false))document.querySelector('#welcome').hidden=false;}
+  else document.querySelector('#welcome').hidden=false;
+
+  function solveRoute(route){
+    const start=keyOf(route.x,route.y),target=keyOf(goal.x,goal.y);const previous=new Map([[start,null]]);const queue=[start];
+    for(let cursor=0;cursor<queue.length&&!previous.has(target);cursor++){const current=queue[cursor];const [x,y]=pointOf(current);for(const direction of dirs){const nx=x+direction.x,ny=y+direction.y,next=keyOf(nx,ny);if(previous.has(next)||!mazeGrid[ny]||mazeGrid[ny][nx]==='#')continue;previous.set(next,current);queue.push(next);}}
+    if(!previous.has(target))return null;
+    const path=[];for(let current=target;current!==start;current=previous.get(current))path.push(pointOf(current));path.reverse();
+    const program=[];let facing=route.dir;let x=route.x,y=route.y;
+    for(const [nextX,nextY] of path){const nextDir=dirs.findIndex(direction=>direction.x===nextX-x&&direction.y===nextY-y);const turn=(nextDir-facing+4)%4;if(turn===1)program.push({type:'right'});else if(turn===3)program.push({type:'left'});else if(turn===2)program.push({type:'left'},{type:'left'});program.push({type:'forward'});facing=nextDir;x=nextX;y=nextY;}
+    return compressRepeatedActions(program);
+  }
+  function compressRepeatedActions(program){
+    const compact=[];
+    for(let index=0;index<program.length;){
+      let end=index+1;while(end<program.length&&program[end].type===program[index].type)end++;
+      let count=end-index;
+      while(count>=2){const times=Math.min(20,count);compact.push({type:'loop',times,children:[{type:program[index].type}]});count-=times;}
+      if(count===1)compact.push({type:program[index].type});
+      index=end;
+    }
+    return compact;
+  }
+  function expandActions(list){return list.flatMap(block=>{
+    if(block.type!=='loop')return[{type:block.type}];
+    const body=expandActions(block.children);return Array.from({length:block.times},(_,repeat)=>body.map((action,index)=>({...action,inLoop:true,loopStart:repeat===0&&index===0,loopTimes:block.times,loopLabel:body.length===1?commandNames[body[0].type].toUpperCase():'BLOCO'}))).flat();
+  });}
+  function boardPosition(x,y){return{left:`${(x+.5)/size*100}%`,top:`${(y+.5)/size*100}%`};}
+  function showMovementPopup(state,action){
+    const popup=document.createElement('span');popup.className='solver-popup';popup.style.setProperty('--team-color',state.route.color);popup.style.setProperty('--team-stack',`${state.team*3}px`);Object.assign(popup.style,boardPosition(state.x,state.y));
+    const actionLabel=action.type==='forward'?'↑ AVANÇAR':action.type==='left'?'↶ ESQUERDA':'↷ DIREITA';popup.textContent=action.loopStart?`↻ ${action.loopLabel} ×${action.loopTimes}`:actionLabel;popup.setAttribute('aria-label',`Equipe ${state.team+1}: ${action.loopStart?`repetir ${action.loopLabel.toLowerCase()} ${action.loopTimes} vezes`:commandNames[action.type]}`);
+    const popups=state.popups||(state.popups=[]);popups.push(popup);if(popups.length>2)popups.shift().remove();popups.forEach((item,index)=>item.style.setProperty('--popup-stack',`${index*14}px`));document.querySelector('#solver-overlays').append(popup);
+    setTimeout(()=>{popup.remove();const index=popups.indexOf(popup);if(index>=0)popups.splice(index,1);popups.forEach((item,slot)=>item.style.setProperty('--popup-stack',`${slot*14}px`));},1100);
+  }
+  function drawSolverToken(state){Object.assign(state.token.style,boardPosition(state.x,state.y));state.token.style.setProperty('--token-offset-x',`${(state.team%3-1)*8}px`);state.token.style.setProperty('--token-offset-y',`${(Math.floor(state.team/3)-1)*8}px`);state.token.textContent=state.route.id;}
+  async function animateAllSolutions(){
+    const overlay=document.querySelector('#solver-overlays');overlay.replaceChildren();mazeEl.classList.add('solver-running');
+    const states=solutionCache.map(solution=>{const route=routeData[solution.team];const token=document.createElement('span');token.className='solver-token';token.style.setProperty('--team-color',route.color);overlay.append(token);const state={team:solution.team,route,x:route.x,y:route.y,dir:route.dir,actions:expandActions(solution.blocks),index:0,token};drawSolverToken(state);return state;});
+    const button=document.querySelector('#solve-all');simulatingAll=true;stopAllRequested=false;button.textContent='■ Parar demonstração';setBusy(true);setStatus(`As ${states.length} equipes começaram juntas.`);
+    while(!stopAllRequested&&states.some(state=>state.index<state.actions.length)){
+      for(const state of states){if(state.index>=state.actions.length)continue;const action=state.actions[state.index++];
+        if(action.type==='left')state.dir=(state.dir+3)%4;else if(action.type==='right')state.dir=(state.dir+1)%4;else{state.x+=dirs[state.dir].x;state.y+=dirs[state.dir].y;}
+        drawSolverToken(state);if(!action.inLoop||action.loopStart)showMovementPopup(state,action);
+      }
+      await sleep(90/demoSpeeds[demoSpeedIndex]);
+    }
+    await sleep(850);overlay.replaceChildren();mazeEl.classList.remove('solver-running');setBusy(false);simulatingAll=false;button.textContent='▶ Assistir todas as equipes';
+    setStatus(stopAllRequested?'Demonstração interrompida.':'Todas as equipes chegaram ao objetivo.',stopAllRequested?'':'success');stopAllRequested=false;
+  }
+  document.querySelector('#solve-all').addEventListener('click',()=>{
+    if(simulatingAll){stopAllRequested=true;return;}if(busy)return;
+    solutionCache=routeData.map((route,team)=>{const blocks=solveRoute(route);return{team,route:route.id,blocks};});
+    if(solutionCache.some(solution=>!solution.blocks)){setStatus('Não foi possível encontrar um caminho para cada equipe.','error');return;}
+    animateAllSolutions();
+  });
+  document.querySelector('#demo-speed').addEventListener('click',event=>{demoSpeedIndex=(demoSpeedIndex+1)%demoSpeeds.length;const speed=demoSpeeds[demoSpeedIndex];event.currentTarget.textContent=`${speed}×`;event.currentTarget.setAttribute('aria-label',`Velocidade da demonstração: ${speed}×. Clique para alterar.`);});
+  document.querySelector('#show-qr').addEventListener('click',()=>{
+    const dialog=document.querySelector('#qr-dialog');const image=document.querySelector('#qr-image');const link=document.querySelector('#share-link');const message=document.querySelector('#qr-message');
+    if(!['http:','https:'].includes(location.protocol)){image.hidden=true;link.hidden=true;message.textContent='O QR abre o site publicado. Hospede este projeto e abra-o pelo endereço HTTPS para gerar o link compartilhável.';}
+    else{const address=new URL(location.href);address.search='';address.searchParams.set('seed',seedCode);address.searchParams.set('view','play');const shareUrl=address.href;image.hidden=false;link.hidden=false;image.src=`https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(shareUrl)}`;link.href=shareUrl;link.textContent=shareUrl;message.textContent='O link abre a vista de participante diretamente neste labirinto.';}
+    dialog.showModal();
+  });
+  document.querySelector('#maze-seed-code').addEventListener('click',async()=>{try{await navigator.clipboard.writeText(seedCode);setStatus(`Código ${seedCode} copiado.`,'success');}catch{setStatus(`Código do labirinto: ${seedCode}`);}});
+  document.querySelector('#close-qr').addEventListener('click',()=>document.querySelector('#qr-dialog').close());
+
+  function expandedSteps(list){return list.reduce((sum,block)=>sum+(block.type==='loop'?block.times*expandedSteps(block.children):1),0);}
+  function itemNode(block,path,number,removeCount=1){
+    const item=document.createElement('div');item.className='program-item'+(block.type==='loop'?' loop':'');item.dataset.programPath=path;item.setAttribute('role','listitem');
+    const num=document.createElement('span');num.className='num';num.textContent=String(number).padStart(2,'0');item.append(num);
+    if(block.type==='loop'){
+      const label=document.createElement('span');label.className='loop-title';label.append(document.createTextNode('Repetir '));
+      const input=document.createElement('input');input.className='loop-input';input.type='number';input.min='2';input.max='20';input.step='1';input.value=String(block.times);input.dataset.loopPath=path;input.setAttribute('aria-label',`Número de repetições do laço ${number}`);input.disabled=busy;label.append(input,document.createTextNode(' vezes'));item.append(label);
+    }else{const text=document.createElement('span');text.className='program-command';text.textContent=commandNames[block.type];item.append(text);}
+    const remove=document.createElement('button');remove.className='remove';remove.type='button';remove.textContent='×';remove.dataset.removePath=path;remove.dataset.removeCount=String(removeCount);remove.disabled=busy;remove.setAttribute('aria-label',`Remover ${block.type==='loop'?'laço':commandNames[block.type]} da posição ${number}`);item.append(remove);rowNodes.set(path,item);return item;
+  }
+  function drawSequence(list,target,parentPath=''){
+    for(let i=0;i<list.length;){
+      const block=list[i],path=parentPath?`${parentPath}.${i}`:`${i}`;
+      if(block.type==='loop'){
+        const wrap=document.createElement('div');wrap.className='program-loop-wrap';wrap.append(itemNode(block,path,i+1));
+        const children=document.createElement('div');children.className='program-children';children.setAttribute('role','group');children.setAttribute('aria-label',`Comandos dentro do laço de ${block.times} repetições`);drawSequence(block.children,children,path);wrap.append(children);target.append(wrap);i++;continue;
+      }
+      let end=i+1;while(end<list.length&&list[end].type===block.type)end++;
+      const run=end-i,row=itemNode(block,path,i+1,run);
+      if(run>1){const badge=document.createElement('span');badge.className='run-badge';badge.textContent=`×${run}`;badge.setAttribute('aria-label',`${run} comandos iguais agrupados`);row.insertBefore(badge,row.querySelector('.remove'));row.querySelector('.program-command').setAttribute('aria-label',`${commandNames[block.type]}, repetido ${run} vezes`);}
+      target.append(row);i=end;
+    }
+  }
+  function drawProgram(){
+    programEl.replaceChildren();rowNodes=new Map();programEl.classList.toggle('empty',!blocks.length);
+    if(!blocks.length){const empty=document.createElement('div');empty.className='program-empty';empty.textContent='Seu programa aparecerá aqui. Comece adicionando um bloco de movimento.';programEl.append(empty);}else drawSequence(blocks,programEl);
+    if(failedPath)markFailedRow(failedPath);const total=expandedSteps(blocks);countEl.textContent=`${total} ${total===1?'passo':'passos'}`;
+    document.querySelector('#repeat').disabled=busy||blocks.length<1;document.querySelector('#clear').disabled=busy||blocks.length===0;
+  }
+  let toastId=0;
+  let activeToast=null;
+  let toastGroupTimer=null;
+  function setStatus(text,kind=''){
+    statusEl.textContent=text;statusEl.className='status'+(kind?' '+kind:'');
+    if(!text)return;
+    const container=document.querySelector('#toast-container');
+    const now=Date.now();
+    if(activeToast?.isConnected&&!activeToast.classList.contains('toast-leaving')&&now-activeToast._lastAdded<850){
+      addToastItem(activeToast,text);
+      activeToast._lastAdded=now;
+      updateToastTone(activeToast,kind);
+      clearTimeout(activeToast._dismissTimer);
+      activeToast._dismissTimer=setTimeout(()=>dismissToast(activeToast),4800);
+      clearTimeout(toastGroupTimer);
+      toastGroupTimer=setTimeout(()=>{activeToast=null;},850);
+      return;
+    }
+    const toast=document.createElement('div');toast.className='toast';toast.setAttribute('role','status');toast.dataset.toastId=String(++toastId);toast._lastAdded=now;toast._tone='';
+    const icon=document.createElement('span');icon.className='toast-icon';icon.setAttribute('aria-hidden','true');
+    const count=document.createElement('span');count.className='toast-count';count.textContent='1';count.setAttribute('aria-label','1 notificação');
+    const close=document.createElement('button');close.className='toast-close';close.type='button';close.setAttribute('aria-label','Dispensar notificações');close.textContent='×';
+    const items=document.createElement('ul');items.className='toast-items';
+    toast.append(icon,count,close,items);container.append(toast);
+    addToastItem(toast,text);updateToastTone(toast,kind);
+    close.addEventListener('click',()=>dismissToast(toast));
+    while(container.children.length>4){const oldest=container.firstElementChild;if(oldest===toast)break;dismissToast(oldest,true);}
+    toast._dismissTimer=setTimeout(()=>dismissToast(toast),4800);
+    activeToast=toast;clearTimeout(toastGroupTimer);toastGroupTimer=setTimeout(()=>{if(activeToast===toast)activeToast=null;},850);
+  }
+  function addToastItem(toast,text){
+    const items=toast.querySelector('.toast-items');const item=document.createElement('li');item.className='toast-item';item.textContent=text;items.append(item);
+    const count=items.children.length;const counter=toast.querySelector('.toast-count');counter.textContent=String(count);counter.setAttribute('aria-label',`${count} ${count===1?'notificação':'notificações'}`);
+  }
+  function updateToastTone(toast,kind){
+    const rank={error:3,success:2,'':1};const previous=toast._tone||'';
+    if((rank[kind]||1)>=(rank[previous]||1))toast._tone=kind;
+    toast.classList.toggle('success',toast._tone==='success');toast.classList.toggle('error',toast._tone==='error');
+    const icon=toast.querySelector('.toast-icon');icon.textContent=toast._tone==='success'?'✓':toast._tone==='error'?'!':'i';
+  }
+  function dismissToast(toast,immediate=false){
+    if(!toast?.isConnected)return;clearTimeout(toast._dismissTimer);if(activeToast===toast)activeToast=null;
+    if(immediate){toast.remove();return;}
+    toast.classList.add('toast-leaving');toast.addEventListener('animationend',()=>toast.remove(),{once:true});setTimeout(()=>toast.remove(),350);
+  }
+  function setBusy(value){busy=value;document.querySelectorAll('[data-add]').forEach(button=>button.disabled=value);document.querySelector('#run').disabled=value;document.querySelector('#new-maze').disabled=value;teamPickerToggle.disabled=value;teamSelectors.querySelectorAll('button').forEach(button=>button.disabled=value);drawProgram();}
+  function markFailedRow(path){const row=rowNodes.get(path);if(!row)return;row.classList.add('failed');if(!row.querySelector('.error-badge')){const badge=document.createElement('span');badge.className='error-badge';badge.textContent='ERRO';badge.setAttribute('aria-hidden','true');row.insertBefore(badge,row.querySelector('.remove'));}}
+  function clearHighlights(){failedPath=null;rowNodes.forEach(row=>row.classList.remove('active','failed'));programEl.querySelectorAll('.error-badge').forEach(badge=>badge.remove());}
+  function add(type){if(busy)return;clearHighlights();blocks.push({type});drawProgram();setStatus(`${commandNames[type]} adicionado à sequência.`);}
+  document.querySelectorAll('[data-add]').forEach(button=>button.addEventListener('click',()=>add(button.dataset.add)));
+  document.querySelector('#repeat').addEventListener('click',()=>{if(busy||!blocks.length)return;clearHighlights();const child=blocks.pop();blocks.push({type:'loop',times:2,children:[child]});drawProgram();setStatus('Laço criado. Ajuste o número de repetições no próprio bloco.');programEl.querySelector(`[data-loop-path="${blocks.length-1}"]`)?.focus();});
+  programEl.addEventListener('change',event=>{const input=event.target.closest('.loop-input');if(!input)return;const path=input.dataset.loopPath;const block=getBlock(path);if(!block||block.type!=='loop')return;const times=Math.max(2,Math.min(20,Number(input.value)||2));clearHighlights();block.times=times;drawProgram();setStatus(`Laço atualizado para ${times} repetições.`);programEl.querySelector(`[data-loop-path="${path}"]`)?.focus();});
+  function getBlock(path){let list=blocks;let block;for(const index of path.split('.').map(Number)){block=list[index];if(!block)return null;list=block.type==='loop'?block.children:[];}return block;}
+  function getParentAndIndex(path){const indices=path.split('.').map(Number);const index=indices.pop();let list=blocks;for(const part of indices){const parent=list[part];if(!parent||parent.type!=='loop')return null;list=parent.children;}return{list,index};}
+  programEl.addEventListener('click',event=>{const button=event.target.closest('[data-remove-path]');if(!button||busy)return;event.preventDefault();event.stopPropagation();const target=getParentAndIndex(button.dataset.removePath);if(!target)return;const start=target.index,amount=Number(button.dataset.removeCount)||1;clearHighlights();target.list.splice(start,amount);drawProgram();setStatus(amount>1?`${amount} comandos repetidos removidos.`:'Bloco removido da sequência.');(programEl.querySelector('.remove')||document.querySelector('[data-add="forward"]'))?.focus();});
+  document.querySelector('#clear').addEventListener('click',()=>{if(busy)return;clearHighlights();blocks=[];drawProgram();setStatus('Sequência apagada. Você pode montar um novo programa.');document.querySelector('[data-add="forward"]').focus();});
+  async function runBlock(block,path){
+    rowNodes.forEach(node=>node.classList.remove('active'));const row=rowNodes.get(path);row?.classList.add('active');
+    if(block.type==='loop'){
+      for(let repeat=0;repeat<block.times;repeat++)for(let i=0;i<block.children.length;i++){const result=await runBlock(block.children[i],`${path}.${i}`);if(result!=='ok')return result;}
+      return player.x===goal.x&&player.y===goal.y?'goal':'ok';
+    }
+    if(block.type==='left')player.dir=(player.dir+3)%4;if(block.type==='right')player.dir=(player.dir+1)%4;
+    if(block.type==='forward'){
+      const next={x:player.x+dirs[player.dir].x,y:player.y+dirs[player.dir].y};const value=mazeGrid[next.y]?.[next.x];
+      if(value===undefined||value==='#'||value===' '){row?.classList.remove('active');failedPath=path;markFailedRow(path);setStatus(`Erro no bloco ${Number(path.split('.').at(-1))+1}: Avançar encontrou uma barreira na linha ${player.y+1}, coluna ${player.x+1}. O programa parou. Ajuste ou remova o bloco destacado.`,'error');return'blocked';}
+      player.x=next.x;player.y=next.y;
+    }
+    updateExplorer();await sleep(140);return player.x===goal.x&&player.y===goal.y?'goal':'ok';
+  }
+  async function runSequence(list,parentPath=''){for(let i=0;i<list.length;i++){const path=parentPath?`${parentPath}.${i}`:`${i}`;const result=await runBlock(list[i],path);if(result!=='ok')return result;}return'done';}
+  document.querySelector('#run').addEventListener('click',async()=>{
+    if(busy)return;if(!blocks.length){setStatus('Adicione pelo menos um bloco antes de executar.','error');document.querySelector('[data-add="forward"]').focus();return;}
+    clearHighlights();resetTeamPlayer();setBusy(true);setStatus(`Executando o algoritmo da Equipe ${activeTeam+1} pela saída ${activeRoute().id}.`);
+    const result=await runSequence(blocks);rowNodes.forEach(node=>node.classList.remove('active'));setBusy(false);
+    if(result==='goal')setStatus(`Sucesso! Equipe ${activeTeam+1} alcançou o objetivo central.`,'success');else if(result==='done')setStatus(`O programa da Equipe ${activeTeam+1} terminou sem alcançar o centro. Revise a sequência.`,'error');
+  });
+  document.querySelector('#theme-toggle').addEventListener('click',()=>{const root=document.documentElement;const dark=root.dataset.theme!=='dark';root.dataset.theme=dark?'dark':'light';document.querySelector('meta[name="theme-color"]').content=dark?'#1b1a18':'#f4f1ec';setStatus(dark?'Tema escuro ativado.':'Tema claro ativado.');if(window.KoiPond?.kick)window.KoiPond.kick();});
+})();

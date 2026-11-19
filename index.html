@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="pt-BR" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#f4f1ec">
+<title>Koi Plugged · Laboratório de Labirintos</title>
+<link rel="stylesheet" href="assets/css/theme.css">
+<link rel="stylesheet" href="assets/css/game.css">
+</head>
+<body>
+<div id="toast-container" class="toast-container" role="region" aria-label="Notificações" aria-live="polite" aria-relevant="additions"> </div>
+<nav class="app-header"><div class="nav-links"><span class="nav-mark" aria-label="LABICOMP"><span class="nav-short">LC</span><span class="nav-full">LABICOMP</span></span><span class="header-maze-meta"><span class="header-stat" title="Tamanho do labirinto"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 4h16v16H4zM8 4v5h4v4H8v7m8-16v4h-4m4 4h4m-8 1v3h4v4"/></svg><b id="maze-dimensions-copy">33 × 33</b></span><span class="header-stat" title="Quantidade de equipes"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="7" r="3"/><path d="M5.5 20v-2.5a6.5 6.5 0 0 1 13 0V20z"/></svg><span id="team-total" aria-label="5 equipes">5</span></span></span></div><div class="nav-tools"><span class="seed-share"><span class="seed-caption">Código</span><button id="maze-seed-code" class="seed-code-copy" type="button" title="Clique para copiar o código" aria-label="Copiar código do labirinto">—</button></span><button id="show-qr" class="b qr-compact" type="button" title="Compartilhar labirinto por QR code" aria-label="Compartilhar por QR code">▦ <span class="qr-label">QR</span></button><button id="new-maze" class="b" type="button" aria-label="Embaralhar labirinto"><span aria-hidden="true">⤨</span><span class="new-maze-label">Embaralhar</span></button><button id="theme-toggle" class="round-button" aria-label="Alternar entre tema claro e escuro" title="Alternar tema">◐</button></div></nav>
+<main>
+  <canvas id="bg" aria-hidden="true"></canvas>
+  <section id="welcome" class="welcome-screen" aria-labelledby="welcome-title">
+    <div class="welcome-card card">
+      <p class="eyebrow">KOI · LABORATÓRIO DE COMPUTAÇÃO</p><h1 id="welcome-title">Labirinto <span>Lógico</span></h1><p class="lead">Crie um novo desafio ou entre em um labirinto compartilhado.</p>
+      <div class="welcome-options">
+        <section class="welcome-option" aria-labelledby="generate-title"><p class="eyebrow">NOVO DESAFIO</p><h2 id="generate-title">Gerar labirinto</h2><p>Escolha o tamanho e a quantidade de equipes. O código gerado guarda essas opções e a semente.</p><label for="setup-size"><span>Tamanho <b id="setup-size-value">33 × 33</b></span><input id="setup-size" type="range" min="15" max="41" step="2" value="33"><span class="range-ends"><small>15 × 15</small><small>41 × 41</small></span></label><label for="setup-teams"><span>Equipes <b id="setup-teams-value">5</b></span><input id="setup-teams" type="range" min="2" max="12" step="1" value="5"><span class="range-ends"><small>2</small><small>12</small></span></label><button id="generate-maze" class="b p" type="button">Gerar e abrir</button></section>
+        <section class="welcome-option" aria-labelledby="insert-title"><p class="eyebrow">JÁ TEM UM CÓDIGO?</p><h2 id="insert-title">Inserir código</h2><p>Digite os oito caracteres em base 36 para abrir exatamente o mesmo labirinto.</p><span id="join-code-label" class="code-field-label">Código do labirinto</span><div id="join-code-inputs" class="code-inputs" role="group" aria-labelledby="join-code-label" aria-describedby="join-error"><input class="code-slot" data-code-index="0" type="text" maxlength="1" aria-label="Caractere 1 de 8" autocomplete="off" autocapitalize="none" spellcheck="false"><input class="code-slot" data-code-index="1" type="text" maxlength="1" aria-label="Caractere 2 de 8" autocomplete="off" autocapitalize="none" spellcheck="false"><input class="code-slot" data-code-index="2" type="text" maxlength="1" aria-label="Caractere 3 de 8" autocomplete="off" autocapitalize="none" spellcheck="false"><input class="code-slot" data-code-index="3" type="text" maxlength="1" aria-label="Caractere 4 de 8" autocomplete="off" autocapitalize="none" spellcheck="false"><input class="code-slot" data-code-index="4" type="text" maxlength="1" aria-label="Caractere 5 de 8" autocomplete="off" autocapitalize="none" spellcheck="false"><input class="code-slot" data-code-index="5" type="text" maxlength="1" aria-label="Caractere 6 de 8" autocomplete="off" autocapitalize="none" spellcheck="false"><input class="code-slot" data-code-index="6" type="text" maxlength="1" aria-label="Caractere 7 de 8" autocomplete="off" autocapitalize="none" spellcheck="false"><input class="code-slot" data-code-index="7" type="text" maxlength="1" aria-label="Caractere 8 de 8" autocomplete="off" autocapitalize="none" spellcheck="false"></div><button id="join-maze" class="b" type="button">Abrir labirinto</button><span id="join-error" class="form-error" role="status" aria-live="polite"></span></section>
+      </div>
+    </div>
+  </section>
+  <header class="hero">
+    <p class="eyebrow">ESTÚDIO DE ALGORITMOS <span>·</span> LABIRINTO PROCEDURAL AJUSTÁVEL</p>
+    <h1>Labirinto <span>Lógico</span></h1>
+    <p class="lead">Ajuste o tamanho do labirinto e o número de equipes. Cada equipe parte de um ponto igualmente espaçado na borda e programa seu caminho até o centro.</p>
+  </header>
+  <section class="game-layout" aria-label="Jogo de programação de labirinto">
+    <div class="board-card card">
+      <div class="maze-wrap"><div class="maze-stage"><div id="maze" class="maze" role="img" aria-label="Labirinto quadrado procedural com saídas igualmente espaçadas e objetivo central."></div><div id="solver-overlays" class="solver-overlays" aria-hidden="true"></div></div></div>
+      <div id="route-legend" class="legend route-legend" aria-label="Saídas das equipes"></div>
+      <div class="legend" aria-label="Legenda do labirinto"><span><i class="legend-dot explorer-dot" aria-hidden="true">➤</i> Explorador ativo</span><span><i class="legend-dot goal-dot" aria-hidden="true">✦</i> Objetivo central</span><span><i class="legend-wall" aria-hidden="true"></i> Parede</span></div>
+      <div class="challenge-note"><span class="note-mark" aria-hidden="true">↳</span><p><b>Dica:</b> o explorador executa cada instrução exatamente como foi programada. Se tentar atravessar uma parede, o programa para e destaca o bloco que causou o erro.</p></div>
+      
+    </div>
+    <aside class="program-card card">
+      <div class="section-head"><div><p class="eyebrow">SEU ALGORITMO</p><h2 id="team-title">Equipe 1 · Rota A</h2></div><span id="block-count" class="m" aria-live="polite">0 passos</span></div>
+      <p class="team-note">Cada equipe tem seu próprio programa.</p>
+      
+      <div class="solver-controls"><button id="solve-all" class="b" type="button">▶ Assistir equipes</button><button id="demo-speed" class="b" type="button" aria-label="Alterar velocidade da demonstração" title="Alterar velocidade da demonstração">1×</button><div class="team-picker"><button id="team-picker-toggle" class="team-picker-toggle" type="button" aria-haspopup="true" aria-expanded="false" aria-controls="team-selectors" aria-label="Escolher equipe"><i id="team-picker-dot" class="team-dot" aria-hidden="true"></i><b id="team-picker-label">A</b><span class="team-picker-arrow" aria-hidden="true">⌄</span></button><div id="team-selectors" class="team-selectors" role="group" aria-label="Equipes disponíveis" hidden></div></div><button id="run" class="b p" type="button" aria-describedby="status">▶ Executar</button><span id="status" class="status" role="status" aria-live="polite" aria-atomic="true">Pronto para executar. Adicione blocos ao programa.</span></div>
+      <p class="panel-copy">Adicione comandos na ordem desejada. Agrupe ações repetidas ou crie laços.</p>
+      <div class="tool-label">MOVIMENTO</div>
+      <div class="block-palette" aria-label="Blocos disponíveis">
+        <button class="command-block move" data-add="forward"><span class="block-icon" aria-hidden="true">↑</span><span>Avançar</span><span class="block-type">AÇÃO</span></button>
+        <button class="command-block turn" data-add="left"><span class="block-icon" aria-hidden="true">↶</span><span>Virar à esquerda</span><span class="block-type">GIRO</span></button>
+        <button class="command-block turn" data-add="right"><span class="block-icon" aria-hidden="true">↷</span><span>Virar à direita</span><span class="block-type">GIRO</span></button>
+      </div>
+      <button id="repeat" class="repeat-block" disabled aria-label="Criar laço com o último bloco"><span class="repeat-icon" aria-hidden="true">⟳</span><span><b>Criar laço com o último bloco</b><small>O número de repetições pode ser ajustado no laço</small></span></button>
+      <div class="program-label-row"><div class="tool-label">SEQUÊNCIA</div><button id="clear" class="text-button">Limpar tudo</button></div>
+      <div id="program" class="program-list" role="list" aria-label="Sequência atual do programa"><div class="program-empty">Seu programa aparecerá aqui.<br><span>Comece adicionando um bloco de movimento.</span></div></div>
+      <div class="logic-tip"><span aria-hidden="true">⌘</span><p><b>Dica de depuração</b><br>Divida o percurso em trechos curtos. Use laços quando uma sequência se repetir.</p></div>
+    </aside>
+  </section>
+  <section class="learning-row" aria-label="Conceitos trabalhados"><div><span class="learning-icon" aria-hidden="true">01</span><p><b>Sequência</b><span>Ordene instruções para resolver o percurso.</span></p></div><div><span class="learning-icon" aria-hidden="true">02</span><p><b>Repetição</b><span>Use laços para repetir comandos.</span></p></div><div><span class="learning-icon" aria-hidden="true">03</span><p><b>Depuração</b><span>Encontre erros e melhore o algoritmo.</span></p></div></section>
+  <dialog id="qr-dialog" class="qr-dialog"><button id="close-qr" class="round-button qr-close" type="button" aria-label="Fechar QR">×</button><p class="eyebrow">COMPARTILHAR LABIRINTO</p><h2>Escaneie para abrir</h2><img id="qr-image" alt="Código QR com o link para abrir este labirinto"><p id="qr-message" class="qr-message"></p><a id="share-link" href="#" target="_blank" rel="noopener"></a></dialog>
+  <footer><span>KOI PLUGGED</span><span>APRENDER CRIANDO · PENSAR EM ALGORITMOS</span></footer>
+</main>
+<script src="assets/js/koi.js"></script>
+<script src="assets/js/game.js"></script>
+</body>
+</html>
