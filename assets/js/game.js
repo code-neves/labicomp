@@ -32,6 +32,9 @@
   let player={x:0,y:0,dir:0};
   let displayedPlayer=null;
   let busy=false;
+  let toastId=0;
+  let activeToast=null;
+  let toastGroupTimer=null;
   let rowNodes=new Map();
   let failedPath=null;
   let solutionCache=[];
@@ -39,6 +42,14 @@
   let stopAllRequested=false;
   const demoSpeeds=[0.5,1,2,5];
   let demoSpeedIndex=1;
+  let roomCode='';
+  let roomRole='';
+  let roomReady=false;
+  let roomMembers=0;
+  let applyingRoomState=false;
+  let lastRoomState='';
+  let pendingRun=false;
+  let joinTimeout=null;
   const fitPond=()=>{pondCanvas.style.height=`${mainEl.scrollHeight}px`;};
   fitPond();
   new ResizeObserver(fitPond).observe(mainEl);
@@ -103,8 +114,8 @@
   }
   function randomSeed(){const values=new Uint32Array(1);if(globalThis.crypto?.getRandomValues)crypto.getRandomValues(values);return values[0]||Math.floor(Math.random()*4294967295)+1;}
   function activateMaze(code,updateAddress=true){
-    const config=decodeSeedCode(code);if(!config){document.querySelector('#join-error').textContent='Código inválido. Use de 1 a 8 caracteres entre 0–9 e a–z.';return false;}
-    size=config.size;center=(size-1)/2;teamCount=config.teams;seedCode=config.code;document.querySelector('#join-error').textContent='';
+    const config=decodeSeedCode(code);if(!config)return false;
+    size=config.size;center=(size-1)/2;teamCount=config.teams;seedCode=config.code;
     setNewMaze(config.seed,true);document.querySelector('#welcome').hidden=true;mainEl.classList.add('game-ready');
     const params=new URLSearchParams(location.search);if(updateAddress)mainEl.classList.remove('guest-view');else if(params.get('view')==='play'||(!params.has('view')&&(params.has('seed')||params.has('code'))))mainEl.classList.add('guest-view');else mainEl.classList.remove('guest-view');
     if(updateAddress&&['http:','https:'].includes(location.protocol)){const address=new URL(location.href);address.search='';address.searchParams.set('seed',seedCode);address.searchParams.set('view','host');history.replaceState(null,'',address);}
@@ -130,20 +141,66 @@
   teamPickerToggle.addEventListener('keydown',event=>{if(event.key==='ArrowDown'){event.preventDefault();teamSelectors.hidden=false;teamPickerToggle.setAttribute('aria-expanded','true');teamSelectors.querySelector('[data-team][aria-pressed="true"]')?.focus();}});
   teamSelectors.addEventListener('keydown',event=>{const options=[...teamSelectors.querySelectorAll('[data-team]')];const index=options.indexOf(event.target.closest('[data-team]'));if(event.key==='Escape'){event.preventDefault();closeTeamPicker(true);}else if(event.key==='ArrowDown'||event.key==='ArrowRight'){event.preventDefault();options[(index+1)%options.length]?.focus();}else if(event.key==='ArrowUp'||event.key==='ArrowLeft'){event.preventDefault();options[(index-1+options.length)%options.length]?.focus();}else if(event.key==='Home'){event.preventDefault();options[0]?.focus();}else if(event.key==='End'){event.preventDefault();options.at(-1)?.focus();}});
   teamSelectors.addEventListener('click',event=>{const button=event.target.closest('[data-team]');if(!button||busy)return;activeTeam=Number(button.dataset.team);blocks=teamPrograms[activeTeam];clearHighlights();teamTitle.textContent=`Equipe ${activeTeam+1} · Saída ${activeRoute().id}`;renderTeamSelectors();closeTeamPicker(true);resetTeamPlayer();drawProgram();setStatus(`Equipe ${activeTeam+1} selecionada. O programa desta equipe foi carregado.`);});
-  document.querySelector('#new-maze').addEventListener('click',()=>{if(busy)return;activateMaze(encodeSeedCode(randomSeed(),size,teamCount));});
+  document.querySelector('#new-maze').addEventListener('click',()=>{if(busy||roomRole==='student')return;const code=encodeSeedCode(randomSeed(),size,teamCount);if(roomRole==='host'){activateMaze(code,false);broadcastRoomState(true);}else activateMaze(code);});
   setupSize.addEventListener('input',()=>{document.querySelector('#setup-size-value').textContent=`${setupSize.value} × ${setupSize.value}`;});
   setupTeams.addEventListener('input',()=>{document.querySelector('#setup-teams-value').textContent=setupTeams.value;});
-  document.querySelector('#generate-maze').addEventListener('click',()=>activateMaze(encodeSeedCode(randomSeed(),Number(setupSize.value),Number(setupTeams.value))));
-  const codeSlots=[...document.querySelectorAll('.code-slot')];
-  function readJoinCode(){return codeSlots.map(input=>input.value).join('');}
-  function submitJoinCode(){const code=readJoinCode();if(code.length!==8){document.querySelector('#join-error').textContent='Preencha os oito caracteres do código.';return;}activateMaze(code);}
-  function fillCodeSlots(start,value){const chars=value.toLowerCase().replace(/[^0-9a-z]/g,'').slice(0,8-start);chars.split('').forEach((character,offset)=>{codeSlots[start+offset].value=character;});const next=Math.min(start+chars.length,7);codeSlots[next].focus();document.querySelector('#join-error').textContent='';if(readJoinCode().length===8)submitJoinCode();}
-  codeSlots.forEach((input,index)=>{
-    input.addEventListener('input',()=>{input.value=input.value.toLowerCase().replace(/[^0-9a-z]/g,'').slice(-1);document.querySelector('#join-error').textContent='';if(input.value&&index<7)codeSlots[index+1].focus();if(input.value&&readJoinCode().length===8)submitJoinCode();});
-    input.addEventListener('keydown',event=>{if(event.key==='Backspace'&&!input.value&&index>0){event.preventDefault();codeSlots[index-1].value='';codeSlots[index-1].focus();}else if(event.key==='ArrowLeft'&&index>0){event.preventDefault();codeSlots[index-1].focus();}else if(event.key==='ArrowRight'&&index<7){event.preventDefault();codeSlots[index+1].focus();}else if(event.key==='Enter'){event.preventDefault();submitJoinCode();}});
-    input.addEventListener('paste',event=>{event.preventDefault();const value=event.clipboardData.getData('text').toLowerCase().replace(/[^0-9a-z]/g,'');fillCodeSlots(value.length>=8?0:index,value);});
-  });
-  document.querySelector('#join-maze').addEventListener('click',submitJoinCode);
+  function randomRoomCode(){const alphabet='23456789ABCDEFGHJKLMNPQRSTUVWXYZ';const values=new Uint8Array(6);crypto.getRandomValues(values);return Array.from(values,value=>alphabet[value%alphabet.length]).join('');}
+  async function createRoom(){
+    const error=document.querySelector('#room-create-error');error.textContent='';
+    if(!window.LabicompRoom?.configured()){error.textContent='Configure o Supabase em assets/js/supabase-config.js antes de criar uma sala.';return;}
+    const code=randomRoomCode();const mazeCode=encodeSeedCode(randomSeed(),Number(setupSize.value),Number(setupTeams.value));
+    try{await connectToRoom(code,'host');activateMaze(mazeCode,false);broadcastRoomState(true);setStatus(`Sala ${code} criada. Compartilhe o código com o grupo.`,'success');}
+    catch(reason){await leaveRoom();error.textContent=reason.message||'Não foi possível criar a sala.';}
+  }
+  async function joinRoom(){
+    const input=document.querySelector('#room-code-input');const error=document.querySelector('#room-join-error');const code=input.value.toUpperCase().replace(/[^A-Z0-9]/g,'');error.textContent='';
+    if(code.length!==6){error.textContent='Digite os seis caracteres do código da sala.';return;}
+    if(!window.LabicompRoom?.configured()){error.textContent='O Supabase ainda não está configurado.';return;}
+    try{await connectToRoom(code,'student');error.textContent='Conectado. Aguardando o labirinto…';await sendRoom('room-request-state',{});clearTimeout(joinTimeout);joinTimeout=setTimeout(async()=>{if(roomRole!=='student'||seedCode)return;await leaveRoom();error.textContent='Sala não encontrada. Confira o código e se o anfitrião está conectado.';},7000);}
+    catch(reason){await leaveRoom();error.textContent=reason.message||'Não foi possível entrar na sala.';}
+  }
+  async function connectToRoom(code,role){
+    await leaveRoom();await window.LabicompRoom.connect(code,role);roomCode=code;roomRole=role;roomReady=true;lastRoomState='';
+    const button=document.querySelector('#room-code-button');button.hidden=false;button.textContent=code;button.setAttribute('aria-label',`Copiar código da sala ${code}`);button.title='Copiar código da sala';updateRoomStatus();
+  }
+  async function leaveRoom(){clearTimeout(joinTimeout);roomReady=false;roomCode='';roomRole='';roomMembers=0;lastRoomState='';const button=document.querySelector('#room-code-button');if(button)button.hidden=true;const status=document.querySelector('#room-status');if(status)status.textContent='';if(window.LabicompRoom)await window.LabicompRoom.disconnect();}
+  function updateRoomStatus(){document.querySelector('#room-status').textContent=roomReady?`${roomMembers||1} online`:'';}
+  async function sendRoom(event,payload){if(!roomReady)return;try{await window.LabicompRoom.send(event,payload);}catch(reason){setStatus(reason.message||'Falha ao sincronizar a sala.','error');}}
+  function roomSnapshot(){return{seed:seedCode,programs:teamPrograms.slice(0,teamCount),activeTeam};}
+  function broadcastRoomState(force=false){if(!roomReady||applyingRoomState)return;const state=roomSnapshot();const signature=JSON.stringify(state);if(!force&&signature===lastRoomState)return;lastRoomState=signature;sendRoom('room-state',state);}
+  function sanitizeProgram(value,depth=0){
+    if(!Array.isArray(value)||value.length>300||depth>8)return null;
+    const result=[];
+    for(const block of value){
+      if(!block||!['forward','left','right','loop'].includes(block.type))return null;
+      if(block.type==='loop'){const children=sanitizeProgram(block.children,depth+1);if(!children)return null;result.push({type:'loop',times:Math.max(2,Math.min(20,Number(block.times)||2)),children});}
+      else result.push({type:block.type});
+    }
+    return result;
+  }
+  function applyRoomState(state){
+    if(!state||!decodeSeedCode(state.seed)||!Array.isArray(state.programs))return;
+    const config=decodeSeedCode(state.seed);const programs=Array.from({length:config.teams},(_,index)=>sanitizeProgram(state.programs[index]||[]));if(programs.some(program=>program===null))return;
+    applyingRoomState=true;try{if(seedCode!==config.code)activateMaze(config.code,false);programs.forEach((program,index)=>teamPrograms[index]=program);activeTeam=Math.min(Math.max(0,Number(state.activeTeam)||0),teamCount-1);blocks=teamPrograms[activeTeam];teamTitle.textContent=`Equipe ${activeTeam+1} · Saída ${activeRoute().id}`;renderTeamSelectors();resetTeamPlayer();drawProgram();lastRoomState=JSON.stringify(roomSnapshot());}finally{applyingRoomState=false;}
+    clearTimeout(joinTimeout);document.querySelector('#room-join-error').textContent='';document.querySelector('#welcome').hidden=true;mainEl.classList.add('game-ready');setStatus(`Sala ${roomCode} sincronizada.`);
+  }
+  function scheduleRoomRun(team,program,startAt){
+    if(busy||pendingRun||!Number.isFinite(startAt))return;const clean=sanitizeProgram(program);if(!clean)return;
+    const runTeam=Math.max(0,Math.min(teamCount-1,Number(team)||0));activeTeam=runTeam;teamPrograms[runTeam]=clean;blocks=teamPrograms[runTeam];teamTitle.textContent=`Equipe ${runTeam+1} · Saída ${activeRoute().id}`;renderTeamSelectors();drawProgram();pendingRun=true;
+    setTimeout(async()=>{pendingRun=false;if(busy)return;activeTeam=runTeam;blocks=teamPrograms[runTeam];clearHighlights();resetTeamPlayer();setBusy(true);setStatus(`Executando em grupo: Equipe ${runTeam+1}.`);const result=await runSequence(blocks);rowNodes.forEach(node=>node.classList.remove('active'));setBusy(false);if(result==='goal')setStatus(`Sucesso! Equipe ${runTeam+1} alcançou o objetivo central.`,'success');else if(result==='done')setStatus(`A Equipe ${runTeam+1} terminou sem alcançar o centro.`,'error');},Math.max(0,startAt-Date.now()));
+  }
+  document.querySelector('#create-room').addEventListener('click',createRoom);
+  document.querySelector('#join-room').addEventListener('click',joinRoom);
+  document.querySelector('#room-code-input').addEventListener('input',event=>{event.currentTarget.value=event.currentTarget.value.toUpperCase().replace(/[^A-Z0-9]/g,'').slice(0,6);document.querySelector('#room-join-error').textContent='';});
+  document.querySelector('#room-code-input').addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();joinRoom();}});
+  document.querySelector('#room-code-button').addEventListener('click',async()=>{try{await navigator.clipboard.writeText(roomCode);setStatus(`Código da sala ${roomCode} copiado.`,'success');}catch{setStatus(`Código da sala: ${roomCode}`);}});
+  document.addEventListener('labicomp:room-request-state',()=>{if(roomRole==='host')broadcastRoomState(true);});
+  document.addEventListener('labicomp:room-state',event=>{if(roomRole!=='host')applyRoomState(event.detail);});
+  document.addEventListener('labicomp:presence',event=>{const state=event.detail.state||{};roomMembers=Object.values(state).reduce((total,items)=>total+items.length,0);updateRoomStatus();});
+  document.addEventListener('labicomp:room-run',event=>{const run=event.detail;if(roomReady&&run.seed===seedCode&&decodeSeedCode(run.seed))scheduleRoomRun(Number(run.team),run.program,Number(run.startAt));});
+  window.addEventListener('beforeunload',()=>{if(window.LabicompRoom)window.LabicompRoom.disconnect();});
+  document.querySelector('#maze-seed-code').addEventListener('click',async()=>{try{await navigator.clipboard.writeText(seedCode);setStatus(`Código ${seedCode} copiado.`,'success');}catch{setStatus(`Código do labirinto: ${seedCode}`);}});
+  document.querySelector('#close-qr').addEventListener('click',()=>document.querySelector('#qr-dialog').close());
   const incomingCode=new URLSearchParams(location.search).get('seed')||new URLSearchParams(location.search).get('code');
   if(incomingCode){if(!activateMaze(incomingCode,false))document.querySelector('#welcome').hidden=false;}
   else document.querySelector('#welcome').hidden=false;
@@ -202,9 +259,9 @@
   });
   document.querySelector('#demo-speed').addEventListener('click',event=>{demoSpeedIndex=(demoSpeedIndex+1)%demoSpeeds.length;const speed=demoSpeeds[demoSpeedIndex];event.currentTarget.textContent=`${speed}×`;event.currentTarget.setAttribute('aria-label',`Velocidade da demonstração: ${speed}×. Clique para alterar.`);});
   document.querySelector('#show-qr').addEventListener('click',()=>{
-    const dialog=document.querySelector('#qr-dialog');const image=document.querySelector('#qr-image');const link=document.querySelector('#share-link');const message=document.querySelector('#qr-message');
-    if(!['http:','https:'].includes(location.protocol)){image.hidden=true;link.hidden=true;message.textContent='O QR abre o site publicado. Hospede este projeto e abra-o pelo endereço HTTPS para gerar o link compartilhável.';}
-    else{const address=new URL(location.href);address.search='';address.searchParams.set('seed',seedCode);address.searchParams.set('view','play');const shareUrl=address.href;image.hidden=false;link.hidden=false;image.src=`https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(shareUrl)}`;link.href=shareUrl;link.textContent=shareUrl;message.textContent='O link abre a vista de participante diretamente neste labirinto.';}
+    const dialog=document.querySelector('#qr-dialog');const image=document.querySelector('#qr-image');document.querySelector('#share-code').textContent=seedCode;
+    if(!['http:','https:'].includes(location.protocol))image.hidden=true;
+    else{const address=new URL(location.href);address.search='';address.searchParams.set('seed',seedCode);address.searchParams.set('view','play');image.hidden=false;image.src=`https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(address.href)}`;}
     dialog.showModal();
   });
   document.querySelector('#maze-seed-code').addEventListener('click',async()=>{try{await navigator.clipboard.writeText(seedCode);setStatus(`Código ${seedCode} copiado.`,'success');}catch{setStatus(`Código do labirinto: ${seedCode}`);}});
@@ -237,11 +294,8 @@
     programEl.replaceChildren();rowNodes=new Map();programEl.classList.toggle('empty',!blocks.length);
     if(!blocks.length){const empty=document.createElement('div');empty.className='program-empty';empty.textContent='Seu programa aparecerá aqui. Comece adicionando um bloco de movimento.';programEl.append(empty);}else drawSequence(blocks,programEl);
     if(failedPath)markFailedRow(failedPath);const total=expandedSteps(blocks);countEl.textContent=`${total} ${total===1?'passo':'passos'}`;
-    document.querySelector('#repeat').disabled=busy||blocks.length<1;document.querySelector('#clear').disabled=busy||blocks.length===0;
+    document.querySelector('#repeat').disabled=busy||blocks.length<1;document.querySelector('#clear').disabled=busy||blocks.length===0;broadcastRoomState();
   }
-  let toastId=0;
-  let activeToast=null;
-  let toastGroupTimer=null;
   function setStatus(text,kind=''){
     statusEl.textContent=text;statusEl.className='status'+(kind?' '+kind:'');
     if(!text)return;
@@ -252,7 +306,7 @@
       activeToast._lastAdded=now;
       updateToastTone(activeToast,kind);
       clearTimeout(activeToast._dismissTimer);
-      activeToast._dismissTimer=setTimeout(()=>dismissToast(activeToast),4800);
+      activeToast._dismissTimer=setTimeout(()=>dismissToast(activeToast),2200);
       clearTimeout(toastGroupTimer);
       toastGroupTimer=setTimeout(()=>{activeToast=null;},850);
       return;
@@ -266,7 +320,7 @@
     addToastItem(toast,text);updateToastTone(toast,kind);
     close.addEventListener('click',()=>dismissToast(toast));
     while(container.children.length>4){const oldest=container.firstElementChild;if(oldest===toast)break;dismissToast(oldest,true);}
-    toast._dismissTimer=setTimeout(()=>dismissToast(toast),4800);
+    toast._dismissTimer=setTimeout(()=>dismissToast(toast),2200);
     activeToast=toast;clearTimeout(toastGroupTimer);toastGroupTimer=setTimeout(()=>{if(activeToast===toast)activeToast=null;},850);
   }
   function addToastItem(toast,text){
@@ -312,9 +366,11 @@
   async function runSequence(list,parentPath=''){for(let i=0;i<list.length;i++){const path=parentPath?`${parentPath}.${i}`:`${i}`;const result=await runBlock(list[i],path);if(result!=='ok')return result;}return'done';}
   document.querySelector('#run').addEventListener('click',async()=>{
     if(busy)return;if(!blocks.length){setStatus('Adicione pelo menos um bloco antes de executar.','error');document.querySelector('[data-add="forward"]').focus();return;}
-    clearHighlights();resetTeamPlayer();setBusy(true);setStatus(`Executando o algoritmo da Equipe ${activeTeam+1} pela saída ${activeRoute().id}.`);
-    const result=await runSequence(blocks);rowNodes.forEach(node=>node.classList.remove('active'));setBusy(false);
-    if(result==='goal')setStatus(`Sucesso! Equipe ${activeTeam+1} alcançou o objetivo central.`,'success');else if(result==='done')setStatus(`O programa da Equipe ${activeTeam+1} terminou sem alcançar o centro. Revise a sequência.`,'error');
+    clearHighlights();resetTeamPlayer();
+    if(roomReady){const startAt=Date.now()+1200;const program=sanitizeProgram(blocks);await sendRoom('room-run',{seed:seedCode,team:activeTeam,program,startAt});scheduleRoomRun(activeTeam,program,startAt);return;}
+    setBusy(true);setStatus(`Executando o algoritmo da Equipe ${activeTeam+1} pela saída ${activeRoute().id}.`);
+    const runTeam=activeTeam;const result=await runSequence(blocks);rowNodes.forEach(node=>node.classList.remove('active'));setBusy(false);
+    if(result==='goal')setStatus(`Sucesso! Equipe ${runTeam+1} alcançou o objetivo central.`,'success');else if(result==='done')setStatus(`O programa da Equipe ${runTeam+1} terminou sem alcançar o centro. Revise a sequência.`,'error');
   });
   document.querySelector('#theme-toggle').addEventListener('click',()=>{const root=document.documentElement;const dark=root.dataset.theme!=='dark';root.dataset.theme=dark?'dark':'light';document.querySelector('meta[name="theme-color"]').content=dark?'#1b1a18':'#f4f1ec';setStatus(dark?'Tema escuro ativado.':'Tema claro ativado.');if(window.KoiPond?.kick)window.KoiPond.kick();});
 })();

@@ -111,3 +111,42 @@ main.game-ready{height:calc(100dvh - 40px);margin-top:40px}
 .game-ready .program-card .run-row{display:contents}
 .game-ready .program-card .run-row .status{display:none}
 @media(max-width:760px){.game-ready .solver-controls{gap:3px}.game-ready .solver-controls>.b{font-size:8px;padding-inline:4px}.game-ready #demo-speed{flex-basis:32px}.game-ready .team-picker-toggle{min-width:52px;padding-inline:4px}.game-ready #solve-all,.game-ready #run{font-size:8px}}
+
+.qr-dialog .share-code{display:block;margin:18px 0 0;color:var(--ac);font:750 clamp(24px,7vw,34px)/1 ui-monospace,monospace;letter-spacing:.12em;white-space:nowrap}
+
+.toast-container{left:calc(env(safe-area-inset-left,0px) + 16px);right:auto}
+@media(max-width:600px){.toast-container{left:calc(env(safe-area-inset-left,0px) + 8px);right:auto}}
+@keyframes toast-enter{from{opacity:0;transform:translate3d(-24px,-8px,0) scale(.97)}to{opacity:1;transform:translate3d(0,0,0) scale(1)}}
+@keyframes toast-exit{to{opacity:0;transform:translate3d(-20px,-6px,0) scale(.98)}}
+
+.game-ready .maze-stage{flex:0 1 auto;width:min(100%,650px,calc(100dvh - 220px));height:auto;min-width:0;max-width:100%;max-height:none;aspect-ratio:1/1}
+.game-ready .maze-stage>.maze{position:absolute;inset:0;width:100%;height:100%;aspect-ratio:1/1}
+@media(orientation:portrait){.game-ready>.game-layout{grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1.08fr) minmax(0,.92fr)}.game-ready .maze-stage{width:min(100%,38dvh,650px)}.game-ready .program-card{overflow:auto}}
+@media(max-width:760px) and (orientation:landscape){.game-ready .maze-stage{width:min(100%,calc(100dvh - 160px),650px)}}
+
+.welcome-screen{padding:12px;background:var(--bg);backdrop-filter:none;-webkit-backdrop-filter:none}
+.welcome-card{padding:clamp(16px,3vw,28px)}
+.welcome-card h1{margin:0 0 5px;font-size:clamp(34px,6vw,52px)}
+.welcome-card>.lead{margin:0 0 14px;font-size:14px}
+.welcome-options{gap:10px}
+.welcome-option{gap:7px;padding:12px}
+.welcome-option h2{margin:-4px 0 0;font-size:18px}
+.welcome-option>p:not(.eyebrow){min-height:0;font-size:11px;line-height:1.4}
+.welcome-option .b{min-height:36px}
+
+
+.welcome-screen{color:var(--fg);color-scheme:inherit;place-items:center;padding:clamp(24px,5vh,56px) clamp(22px,6vw,88px);background:color-mix(in srgb,var(--bg) 18%,transparent);backdrop-filter:none;-webkit-backdrop-filter:none}body:has(#welcome:not([hidden]))>nav.app-header{position:fixed;top:0;left:0;right:0;width:100%;max-width:none;margin:0;padding:18px clamp(22px,6vw,88px);justify-content:space-between;background:transparent;box-shadow:none}body:has(#welcome:not([hidden])) .app-header .nav-mark{max-width:none;padding:4px 0;color:var(--fg);font-size:14px;letter-spacing:.14em;cursor:default}body:has(#welcome:not([hidden])) .app-header .nav-full{max-width:140px;opacity:1}body:has(#welcome:not([hidden])) .app-header .nav-mark:hover{gap:0;background:transparent}body:has(#welcome:not([hidden])) .app-header .nav-tools .seed-share,body:has(#welcome:not([hidden])) .app-header #show-qr,body:has(#welcome:not([hidden])) .app-header #new-maze{display:none}.welcome-card.card{width:min(1120px,100%);margin:0;padding:0;border:0;border-radius:0;background:transparent;box-shadow:none}.welcome-card>.eyebrow{margin-bottom:20px;font-size:11px;letter-spacing:.18em}.welcome-card h1{margin:0 0 16px;font-size:clamp(56px,10vw,112px);font-weight:560;letter-spacing:-.075em;line-height:.98}.welcome-card h1 span{color:var(--ac)}.welcome-card>.lead{max-width:740px;margin:0;color:var(--mut);font-size:clamp(16px,2vw,21px);line-height:1.6}.welcome-options{grid-template-columns:repeat(2,minmax(0,1fr));align-items:start;gap:clamp(32px,8vw,112px);margin-top:clamp(52px,10vh,120px)}.welcome-option{gap:12px;padding:0;border:0;border-radius:0;background:transparent}.welcome-option>.eyebrow{margin-bottom:2px}.welcome-option h2{margin:0;font-size:clamp(22px,2.5vw,30px);font-weight:550;letter-spacing:-.04em}.welcome-option>p:not(.eyebrow){max-width:440px;min-height:0;color:var(--mut);font-size:13px;line-height:1.55}.welcome-option label{font-size:12px}.welcome-option .range-ends{font-size:10px}.welcome-option input[type=range]{padding:0;border:0;background:transparent}.welcome-option .b{min-height:42px}.welcome-option .code-field-label{color:var(--mut);font-size:11px;font-weight:650}.welcome-option .code-slot{background:var(--card);color:var(--fg)}@media(max-width:680px){.welcome-screen{place-items:start center;padding:72px 22px 32px}.welcome-card h1{font-size:clamp(48px,14vw,76px)}.welcome-options{grid-template-columns:1fr;gap:36px;margin-top:40px}.welcome-option{gap:9px}}@media(max-height:720px){.welcome-screen{place-items:start center;padding-top:42px;padding-bottom:24px}.welcome-card h1{font-size:clamp(48px,8vw,82px)}.welcome-options{margin-top:40px}}
+main>#welcome{position:fixed;inset:0;z-index:1000}
+
+body:has(#welcome:not([hidden]))>nav.app-header{z-index:1001;min-height:48px;padding:18px clamp(22px,6vw,88px)}
+body:has(#welcome:not([hidden])) .app-header .nav-mark{display:inline-flex;align-items:center;gap:8px;max-width:none;overflow:visible;color:var(--ac);font-size:12px;font-weight:750;letter-spacing:.16em}
+body:has(#welcome:not([hidden])) .app-header .nav-short{display:none}
+body:has(#welcome:not([hidden])) .app-header .nav-full{display:inline-block;max-width:none;overflow:visible;opacity:1;color:var(--ac)}
+body:has(#welcome:not([hidden])) .app-header .nav-tools{display:flex}
+body:has(#welcome:not([hidden])) .app-header #theme-toggle{display:grid;place-items:center}
+.welcome-screen{background:color-mix(in srgb,var(--bg) 18%,transparent)}
+.room-code-button{font:750 12px ui-monospace,monospace;letter-spacing:.12em;color:var(--ac)}
+.room-status{color:var(--mut);font-size:10px;white-space:nowrap}
+.welcome-option input[type=text]{width:100%;min-height:42px;padding:8px 12px;border:1px solid var(--line);border-radius:7px;background:var(--card);color:var(--fg);font:750 18px ui-monospace,monospace;letter-spacing:.24em;text-transform:uppercase}
+.welcome-option input[type=text]::placeholder{color:var(--mut);opacity:.65}
+@media(max-width:680px){body:has(#welcome:not([hidden]))>nav.app-header{padding:14px 22px}.room-status{font-size:9px}}
