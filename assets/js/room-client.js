@@ -4,7 +4,8 @@
   let client=null;
   let channel=null;
   let roomCode='';
-  const events=['room-request-state','room-state','room-program','room-run','room-start','room-stop'];
+  const events=['room-request-state','room-state','room-program','room-run','room-start','room-stop','room-player','room-request-players'];
+  let presenceData=null;
   function emit(name,detail){document.dispatchEvent(new CustomEvent(`labicomp:${name}`,{detail}));}
   function configured(){return Boolean(config.url&&config.publishableKey&&window.supabase?.createClient);}
   async function connect(code,role){
@@ -22,8 +23,14 @@
         else if(status==='CHANNEL_ERROR'||status==='TIMED_OUT'||status==='CLOSED'){clearTimeout(timer);reject(new Error('Não foi possível conectar à sala no Supabase.'))}
       });
     });
-    await channel.track({clientId,role,joinedAt:Date.now()});
+    presenceData={clientId,role,joinedAt:Date.now(),teamIndex:role==='host'?0:null,spectating:false};
+    await channel.track(presenceData);
     return{clientId,roomCode};
+  }
+  async function updatePresence(patch){
+    if(!channel||!presenceData)return;
+    Object.assign(presenceData,patch);
+    await channel.track(presenceData);
   }
   async function send(event,payload){
     if(!channel)throw new Error('Não há uma sala conectada.');
@@ -33,8 +40,8 @@
   }
   async function disconnect(){
     const oldClient=client,oldChannel=channel;
-    client=null;channel=null;roomCode='';
+    client=null;channel=null;roomCode='';presenceData=null;
     if(oldClient&&oldChannel)await oldClient.removeChannel(oldChannel);
   }
-  window.LabicompRoom={configured,connect,send,disconnect,get clientId(){return clientId;},get roomCode(){return roomCode;}};
+  window.LabicompRoom={configured,connect,send,updatePresence,disconnect,get clientId(){return clientId;},get roomCode(){return roomCode;}};
 })();
