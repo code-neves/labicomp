@@ -150,3 +150,12 @@ body:has(#welcome:not([hidden])) .app-header #theme-toggle{display:grid;place-it
 .welcome-option input[type=text]{width:100%;min-height:42px;padding:8px 12px;border:1px solid var(--line);border-radius:7px;background:var(--card);color:var(--fg);font:750 18px ui-monospace,monospace;letter-spacing:.24em;text-transform:uppercase}
 .welcome-option input[type=text]::placeholder{color:var(--mut);opacity:.65}
 @media(max-width:680px){body:has(#welcome:not([hidden]))>nav.app-header{padding:14px 22px}.room-status{font-size:9px}}
+
+.app-header [hidden]{display:none!important}
+.team-selector:disabled{cursor:not-allowed;opacity:.48}.team-selector:disabled:hover{border-color:var(--line)}
+.remote-player-token{position:absolute;z-index:4;display:grid;place-items:center;width:clamp(17px,2vw,23px);height:clamp(17px,2vw,23px);border:2px solid #fff;border-radius:50%;background:var(--team-color);color:#fff;font:800 8px ui-monospace,monospace;box-shadow:0 1px 6px #0009;transform:translate(-50%,-50%);transition:left 85ms linear,top 85ms linear}
+@media(max-width:600px){.remote-player-token{width:17px;height:17px;font-size:7px}.room-status{max-width:100px;overflow:hidden;text-overflow:ellipsis}}
+
+.welcome-option label[for=setup-seed]{display:grid;grid-template-columns:1fr}.welcome-option label[for=setup-seed]>input{width:100%;min-width:0}
+
+.team-selector.spectator-selector{grid-column:1/-1;justify-content:center;color:var(--mut);font-size:10px}
