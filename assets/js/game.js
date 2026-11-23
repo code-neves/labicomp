@@ -133,6 +133,7 @@
     if(randomSeed<1||randomSeed>4294967295||sizeIndex>13)return null;
     return{code:code.padStart(8,'0'),seed:randomSeed,size:15+sizeIndex*2,teams};
   }
+  function hashSeed(value){let hash=2166136261;for(let index=0;index<value.length;index++){hash^=value.charCodeAt(index);hash=Math.imul(hash,16777619);}return(hash>>>0)||1;}
   function randomSeed(){const values=new Uint32Array(1);if(globalThis.crypto?.getRandomValues)crypto.getRandomValues(values);return values[0]||Math.floor(Math.random()*4294967295)+1;}
   function activateMaze(code){
     const config=decodeSeedCode(code);if(!config)return false;
@@ -175,11 +176,12 @@
   document.querySelector('#new-maze').addEventListener('click',()=>{if(busy||roomRole!=='host')return;remotePlayers.clear();remotePlayerTokens.clear();document.querySelector('#solver-overlays').replaceChildren();activateMaze(encodeSeedCode(randomSeed(),size,teamCount));broadcastRoomState(true);sendRoom('room-request-players',{});});
   setupSize.addEventListener('input',()=>{document.querySelector('#setup-size-value').textContent=`${setupSize.value} × ${setupSize.value}`;});
   setupTeams.addEventListener('input',()=>{document.querySelector('#setup-teams-value').textContent=setupTeams.value;});
+  setupSeed.addEventListener('input',event=>{event.currentTarget.value=event.currentTarget.value.toLowerCase().replace(/[^a-z0-9]/g,'').slice(0,32);});
   function randomRoomCode(){const alphabet='23456789ABCDEFGHJKLMNPQRSTUVWXYZ';const values=new Uint8Array(6);crypto.getRandomValues(values);return Array.from(values,value=>alphabet[value%alphabet.length]).join('');}
   async function createRoom(){
     const error=document.querySelector('#room-create-error');error.textContent='';
     if(!window.LabicompRoom?.configured()){error.textContent='Configure o Supabase em assets/js/supabase-config.js antes de criar uma sala.';return;}
-    const rawSeed=setupSeed?.value?.trim()||'';const chosenSeed=rawSeed?Number(rawSeed):randomSeed();if(rawSeed&&(!/^\d+$/.test(rawSeed)||!Number.isSafeInteger(chosenSeed)||chosenSeed<1||chosenSeed>4294967295)){error.textContent='Informe uma semente inteira entre 1 e 4294967295, ou deixe em branco para gerar uma.';return;}
+    const rawSeed=setupSeed?.value?.trim().toLowerCase()||'';if(rawSeed&&!/^[a-z0-9]{1,32}$/.test(rawSeed)){error.textContent='Use de 1 a 32 letras de a a z ou números de 0 a 9, ou deixe em branco para gerar uma semente.';return;}const chosenSeed=rawSeed?hashSeed(rawSeed):randomSeed();
     const code=randomRoomCode();const mazeCode=encodeSeedCode(chosenSeed,Number(setupSize.value),Number(setupTeams.value));
     try{await connectToRoom(code,'host');roomOwnerId=window.LabicompRoom.clientId;activateMaze(mazeCode);broadcastRoomState(true);setStatus(`Sala ${code} criada.`);}
     catch(reason){await leaveRoom();error.textContent=reason.message||'Não foi possível criar a sala.';}
