@@ -123,7 +123,7 @@
   }
   function drawMaze(){mazeEl.replaceChildren();mazeEl.style.setProperty('--maze-size',size);mazeCells=Array.from({length:size},()=>[]);displayedPlayer=null;mazeGrid.forEach((row,y)=>row.forEach((value,x)=>{const cell=document.createElement('div');cell.className='cell';if(value==='#')cell.classList.add('wall');else if(value==='*'){cell.classList.add('goal');cell.textContent='✦';}else if(ROUTES.includes(value)){const route=routeData.find(item=>item.id===value);cell.classList.add('start');cell.textContent=value;cell.style.setProperty('--team-color',route.color);cell.setAttribute('aria-label',`Saída ${value}`);}mazeCells[y][x]=cell;mazeEl.append(cell);}));updateExplorer();}
   function drawRouteLegend(){const legend=document.querySelector('#route-legend');legend.replaceChildren();routeData.forEach((route,index)=>{const item=document.createElement('span');item.style.setProperty('--team-color',route.color);const swatch=document.createElement('i');swatch.className='route-swatch';swatch.textContent=route.id;item.append(swatch,document.createTextNode(` Equipe ${index+1}`));legend.append(item);});}
-  function resetTeamPlayer(){if(roomReady&&assignedTeamIndex<0){if(displayedPlayer)restoreCell(displayedPlayer.x,displayedPlayer.y);displayedPlayer=null;updateActionAvailability();return;}const route=activeRoute();player={x:route.x,y:route.y,dir:route.dir};updateExplorer();}
+  function resetTeamPlayer(){hideVictory();if(roomReady&&assignedTeamIndex<0&&!runActorId){if(displayedPlayer)restoreCell(displayedPlayer.x,displayedPlayer.y);displayedPlayer=null;updateActionAvailability();return;}const route=activeRoute();player={x:route.x,y:route.y,dir:route.dir};updateExplorer();}
   const CONFIG_RADIX=154n;
   function encodeSeedCode(randomSeed,mazeSize,teams){const sizeIndex=(mazeSize-15)/2;const config=sizeIndex*11+(teams-2);return(BigInt(randomSeed)*CONFIG_RADIX+BigInt(config)).toString(36).padStart(8,'0');}
   function decodeSeedCode(value){
@@ -136,13 +136,13 @@
   function randomSeed(){const values=new Uint32Array(1);if(globalThis.crypto?.getRandomValues)crypto.getRandomValues(values);return values[0]||Math.floor(Math.random()*4294967295)+1;}
   function activateMaze(code){
     const config=decodeSeedCode(code);if(!config)return false;
-    size=config.size;center=(size-1)/2;teamCount=config.teams;seedCode=config.code;
+    size=config.size;center=(size-1)/2;teamCount=config.teams;seedCode=config.code;document.querySelector('#maze-seed').textContent=seedCode;
     setNewMaze(config.seed,true);document.querySelector('#welcome').hidden=true;mainEl.classList.add('game-ready');mainEl.classList.remove('guest-view');
     if(roomPresence.length)applyRoomPresence(roomPresence);
     return true;
   }
   function setNewMaze(seed,clearPrograms=false){
-    clearHighlights();mazeSeed=(Math.abs(Math.trunc(Number(seed)))||Math.floor(Math.random()*2147483646)+1)>>>0;
+    hideVictory();clearHighlights();mazeSeed=(Math.abs(Math.trunc(Number(seed)))||Math.floor(Math.random()*2147483646)+1)>>>0;
     solutionCache=[];
     const generated=generateMaze(mazeSeed);mazeGrid=generated.grid;routeData=generated.starts;goal=generated.goal;
     if(clearPrograms){teamPrograms.forEach((_,index)=>teamPrograms[index]=[]);activeTeam=0;}
@@ -156,6 +156,8 @@
     if(roomReady&&roomRole==='host'&&!roomSpectating){const spectator=document.createElement('button');spectator.type='button';spectator.className='team-selector spectator-selector';spectator.dataset.spectator='true';spectator.textContent=roomSpectating?'Continuar como espectador':'Assistir como espectador';spectator.disabled=busy;spectator.setAttribute('aria-pressed',String(roomSpectating));teamSelectors.append(spectator);}
     for(let index=0;index<teamCount;index++){const route=routeData[index];const owner=roomAssignments.get(index);const occupiedByOther=roomReady&&owner&&owner!==window.LabicompRoom.clientId;const button=document.createElement('button');button.type='button';button.className='team-selector';button.dataset.team=String(index);button.style.setProperty('--team-color',route.color);button.disabled=busy||Boolean(occupiedByOther);button.setAttribute('aria-pressed',String(index===activeTeam&&(!roomReady||assignedTeamIndex>=0)));button.setAttribute('aria-label',`Selecionar equipe ${index+1}, saída ${route.id}${occupiedByOther?', já escolhida':''}`);const dot=document.createElement('i');dot.className='team-dot';dot.setAttribute('aria-hidden','true');const label=document.createElement('b');label.className='team-route-label';label.textContent=route.id;button.append(dot,label);if(occupiedByOther){const occupied=document.createElement('small');occupied.textContent='Em uso';button.append(occupied);}teamSelectors.append(button);}
   }
+  function hideVictory(){const dialog=document.querySelector('#victory-dialog');if(dialog.open)dialog.close();mazeCells[goal.y]?.[goal.x]?.classList.remove('goal-reached');}
+  function showVictory(team){const dialog=document.querySelector('#victory-dialog');const title=document.querySelector('#victory-title');const message=document.querySelector('#victory-message');title.textContent=team==null?'Todas as equipes chegaram!':'Objetivo alcançado!';message.textContent=team==null?'O labirinto foi resolvido.':`Equipe ${team+1} · Saída ${routeData[team]?.id||''}`;if(!dialog.open)dialog.showModal();mazeCells[goal.y]?.[goal.x]?.classList.add('goal-reached');setStatus(team==null?'Todas as equipes chegaram ao objetivo central!':`Sucesso! Equipe ${team+1} alcançou o objetivo central.`,'success');}
   function closeTeamPicker(returnFocus=false){teamSelectors.hidden=true;teamPickerToggle.setAttribute('aria-expanded','false');if(returnFocus)teamPickerToggle.focus();}
   teamPickerToggle.addEventListener('click',()=>{const open=teamPickerToggle.getAttribute('aria-expanded')==='true';teamSelectors.hidden=open;teamPickerToggle.setAttribute('aria-expanded',String(!open));if(!open)teamSelectors.querySelector('[data-team][aria-pressed="true"]')?.focus();});
   document.addEventListener('click',event=>{if(!event.target.closest('.team-picker'))closeTeamPicker();});
@@ -177,7 +179,7 @@
   async function createRoom(){
     const error=document.querySelector('#room-create-error');error.textContent='';
     if(!window.LabicompRoom?.configured()){error.textContent='Configure o Supabase em assets/js/supabase-config.js antes de criar uma sala.';return;}
-    const rawSeed=setupSeed.value.trim();const chosenSeed=rawSeed?Number(rawSeed):randomSeed();if(rawSeed&&(!/^\d+$/.test(rawSeed)||!Number.isSafeInteger(chosenSeed)||chosenSeed<1||chosenSeed>4294967295)){error.textContent='Informe uma semente inteira entre 1 e 4294967295, ou deixe em branco para gerar uma.';return;}
+    const rawSeed=setupSeed?.value?.trim()||'';const chosenSeed=rawSeed?Number(rawSeed):randomSeed();if(rawSeed&&(!/^\d+$/.test(rawSeed)||!Number.isSafeInteger(chosenSeed)||chosenSeed<1||chosenSeed>4294967295)){error.textContent='Informe uma semente inteira entre 1 e 4294967295, ou deixe em branco para gerar uma.';return;}
     const code=randomRoomCode();const mazeCode=encodeSeedCode(chosenSeed,Number(setupSize.value),Number(setupTeams.value));
     try{await connectToRoom(code,'host');roomOwnerId=window.LabicompRoom.clientId;activateMaze(mazeCode);broadcastRoomState(true);setStatus(`Sala ${code} criada.`);}
     catch(reason){await leaveRoom();error.textContent=reason.message||'Não foi possível criar a sala.';}
@@ -239,7 +241,7 @@
   function scheduleRoomRun(team,program,startAt,actorId=window.LabicompRoom?.clientId){
     if(busy||pendingRun||!Number.isFinite(startAt))return;const clean=sanitizeProgram(program);if(!clean)return;
     const runTeam=Math.max(0,Math.min(teamCount-1,Number(team)||0));activeTeam=runTeam;teamPrograms[runTeam]=clean;blocks=teamPrograms[runTeam];teamTitle.textContent=`Equipe ${runTeam+1} · Saída ${activeRoute().id}`;renderTeamSelectors();drawProgram();pendingRun=true;
-    setTimeout(async()=>{pendingRun=false;if(busy)return;activeTeam=runTeam;blocks=teamPrograms[runTeam];runActorId=actorId||'';clearHighlights();resetTeamPlayer();setBusy(true);setStatus(`Executando em grupo: Equipe ${runTeam+1}.`);const result=await runSequence(blocks);rowNodes.forEach(node=>node.classList.remove('active'));setBusy(false);runActorId='';if(assignedTeamIndex>=0&&assignedTeamIndex<teamCount){activeTeam=assignedTeamIndex;blocks=teamPrograms[activeTeam];teamTitle.textContent=`Equipe ${activeTeam+1} · Saída ${activeRoute().id}`;renderTeamSelectors();resetTeamPlayer();}renderRemotePlayers();if(result==='goal')setStatus(`Sucesso! Equipe ${runTeam+1} alcançou o objetivo central.`,'success');else if(result==='done')setStatus(`A Equipe ${runTeam+1} terminou sem alcançar o centro.`,'error');},Math.max(0,startAt-Date.now()));
+    setTimeout(async()=>{pendingRun=false;if(busy)return;activeTeam=runTeam;blocks=teamPrograms[runTeam];runActorId=actorId||'';clearHighlights();resetTeamPlayer();setBusy(true);setStatus(`Executando em grupo: Equipe ${runTeam+1}.`);const result=await runSequence(blocks);rowNodes.forEach(node=>node.classList.remove('active'));setBusy(false);runActorId='';if(assignedTeamIndex>=0&&assignedTeamIndex<teamCount){activeTeam=assignedTeamIndex;blocks=teamPrograms[activeTeam];teamTitle.textContent=`Equipe ${activeTeam+1} · Saída ${activeRoute().id}`;renderTeamSelectors();resetTeamPlayer();}renderRemotePlayers();if(result==='goal')showVictory(runTeam);else if(result==='done')setStatus(`A Equipe ${runTeam+1} terminou sem alcançar o centro.`,'error');},Math.max(0,startAt-Date.now()));
   }
   document.querySelector('#create-room').addEventListener('click',createRoom);
   document.querySelector('#join-room').addEventListener('click',joinRoom);
@@ -253,9 +255,9 @@
   document.addEventListener('labicomp:room-request-players',()=>sendMyPosition());
   document.addEventListener('labicomp:room-run',event=>{const run=event.detail;if(roomReady&&run.seed===seedCode&&decodeSeedCode(run.seed)){runActorId=run.sender||'';renderRemotePlayers();scheduleRoomRun(Number(run.team),run.program,Number(run.startAt),runActorId);}});
   window.addEventListener('beforeunload',()=>{clearTimeout(positionBroadcastTimer);if(window.LabicompRoom)window.LabicompRoom.disconnect();});
-  document.querySelector('#close-qr').addEventListener('click',()=>document.querySelector('#qr-dialog').close());
-  const roomInvite=new URLSearchParams(location.search).get('room');
+  const inviteParams=new URLSearchParams(location.search);const roomInvite=inviteParams.get('room');const mazeInvite=inviteParams.get('seed');
   if(roomInvite&&/^[A-Z0-9]{6}$/i.test(roomInvite)){document.querySelector('#welcome').hidden=false;joinRoom(roomInvite);}
+  else if(mazeInvite&&decodeSeedCode(mazeInvite)){activateMaze(mazeInvite);}
   else document.querySelector('#welcome').hidden=false;
 
   function solveRoute(route){
@@ -291,7 +293,7 @@
   }
   function drawSolverToken(state){Object.assign(state.token.style,boardPosition(state.x,state.y));state.token.style.setProperty('--token-offset-x',`${(state.team%3-1)*8}px`);state.token.style.setProperty('--token-offset-y',`${(Math.floor(state.team/3)-1)*8}px`);state.token.textContent=state.route.id;}
   async function animateAllSolutions(){
-    const overlay=document.querySelector('#solver-overlays');overlay.replaceChildren();remotePlayerTokens.clear();mazeEl.classList.add('solver-running');
+    hideVictory();const overlay=document.querySelector('#solver-overlays');overlay.replaceChildren();remotePlayerTokens.clear();mazeEl.classList.add('solver-running');
     const states=solutionCache.map(solution=>{const route=routeData[solution.team];const token=document.createElement('span');token.className='solver-token';token.style.setProperty('--team-color',route.color);overlay.append(token);const state={team:solution.team,route,x:route.x,y:route.y,dir:route.dir,actions:expandActions(solution.blocks),index:0,token};drawSolverToken(state);return state;});
     const button=document.querySelector('#solve-all');simulatingAll=true;stopAllRequested=false;button.textContent='■ Parar demonstração';setBusy(true);setStatus(`As ${states.length} equipes começaram juntas.`);
     while(!stopAllRequested&&states.some(state=>state.index<state.actions.length)){
@@ -302,7 +304,7 @@
       await sleep(90/demoSpeeds[demoSpeedIndex]);
     }
     await sleep(850);overlay.replaceChildren();remotePlayerTokens.clear();renderRemotePlayers();mazeEl.classList.remove('solver-running');setBusy(false);simulatingAll=false;button.textContent='▶ Assistir todas as equipes';
-    setStatus(stopAllRequested?'Demonstração interrompida.':'Todas as equipes chegaram ao objetivo.',stopAllRequested?'':'success');stopAllRequested=false;
+    if(stopAllRequested)setStatus('Demonstração interrompida.');else showVictory(null);stopAllRequested=false;
   }
   document.querySelector('#solve-all').addEventListener('click',()=>{
     if(simulatingAll){stopAllRequested=true;return;}if(busy)return;
@@ -319,6 +321,16 @@
     dialog.showModal();
   });
   document.querySelector('#close-qr').addEventListener('click',()=>document.querySelector('#qr-dialog').close());
+  document.querySelector('#copy-maze-seed').addEventListener('click',async()=>{try{await navigator.clipboard.writeText(seedCode);setStatus('Semente do labirinto copiada.');}catch{setStatus(`Semente do labirinto: ${seedCode}`);}});
+  document.querySelector('#print-maze').addEventListener('click',()=>{
+    if(!seedCode)return;
+    const printWrap=document.querySelector('#print-maze-wrap');const printedMaze=document.createElement('div');printedMaze.className='maze print-maze-grid';printedMaze.style.setProperty('--maze-size',size);
+    mazeGrid.forEach((row,y)=>row.forEach((value,x)=>{const cell=document.createElement('div');cell.className='cell';if(value==='#')cell.classList.add('wall');else if(value==='*'){cell.classList.add('goal');cell.textContent='✦';}else if(ROUTES.includes(value)){const route=routeData.find(item=>item.id===value);cell.classList.add('start');cell.textContent=value;cell.style.setProperty('--team-color',route.color);}printedMaze.append(cell);}));
+    printWrap.replaceChildren(printedMaze);document.querySelector('#print-seed').textContent=seedCode;
+    if(!['http:','https:'].includes(location.protocol)){setStatus('Abra o site publicado para imprimir um QR code válido.','error');return;}
+    const address=new URL(location.href);address.search='';address.hash='';address.searchParams.set('seed',seedCode);
+    document.querySelector('#print-url').textContent=address.href;const image=document.querySelector('#print-qr');let printed=false;const printOnce=()=>{if(printed)return;printed=true;window.print();};image.onload=printOnce;image.onerror=printOnce;image.src=`https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=${encodeURIComponent(address.href)}`;if(image.complete&&image.naturalWidth)printOnce();setTimeout(printOnce,4000);
+  });
 
   function expandedSteps(list){return list.reduce((sum,block)=>sum+(block.type==='loop'?block.times*expandedSteps(block.children):1),0);}
   function itemNode(block,path,number,removeCount=1){
@@ -402,6 +414,7 @@
   function getBlock(path){let list=blocks;let block;for(const index of path.split('.').map(Number)){block=list[index];if(!block)return null;list=block.type==='loop'?block.children:[];}return block;}
   function getParentAndIndex(path){const indices=path.split('.').map(Number);const index=indices.pop();let list=blocks;for(const part of indices){const parent=list[part];if(!parent||parent.type!=='loop')return null;list=parent.children;}return{list,index};}
   programEl.addEventListener('click',event=>{const button=event.target.closest('[data-remove-path]');if(!button||busy||(roomReady&&assignedTeamIndex<0))return;event.preventDefault();event.stopPropagation();const target=getParentAndIndex(button.dataset.removePath);if(!target)return;const start=target.index,amount=Number(button.dataset.removeCount)||1;clearHighlights();target.list.splice(start,amount);drawProgram();setStatus(amount>1?`${amount} comandos repetidos removidos.`:'Bloco removido da sequência.');(programEl.querySelector('.remove')||document.querySelector('[data-add="forward"]'))?.focus();});
+  document.querySelector('#retry-victory').addEventListener('click',()=>{hideVictory();resetTeamPlayer();setStatus('Pronto para tentar novamente.');});
   document.querySelector('#clear').addEventListener('click',()=>{if(busy||(roomReady&&assignedTeamIndex<0))return;clearHighlights();blocks=[];drawProgram();setStatus('Sequência apagada. Você pode montar um novo programa.');document.querySelector('[data-add="forward"]').focus();});
   async function runBlock(block,path){
     rowNodes.forEach(node=>node.classList.remove('active'));const row=rowNodes.get(path);row?.classList.add('active');
@@ -424,7 +437,7 @@
     if(roomReady){const startAt=Date.now()+1200;const program=sanitizeProgram(blocks);await sendRoom('room-run',{seed:seedCode,team:activeTeam,program,startAt});scheduleRoomRun(activeTeam,program,startAt);return;}
     setBusy(true);setStatus(`Executando o algoritmo da Equipe ${activeTeam+1} pela saída ${activeRoute().id}.`);
     const runTeam=activeTeam;const result=await runSequence(blocks);rowNodes.forEach(node=>node.classList.remove('active'));setBusy(false);
-    if(result==='goal')setStatus(`Sucesso! Equipe ${runTeam+1} alcançou o objetivo central.`,'success');else if(result==='done')setStatus(`O programa da Equipe ${runTeam+1} terminou sem alcançar o centro. Revise a sequência.`,'error');
+    if(result==='goal')showVictory(runTeam);else if(result==='done')setStatus(`O programa da Equipe ${runTeam+1} terminou sem alcançar o centro. Revise a sequência.`,'error');
   });
   document.querySelector('#theme-toggle').addEventListener('click',()=>{const root=document.documentElement;const dark=root.dataset.theme!=='dark';root.dataset.theme=dark?'dark':'light';document.querySelector('meta[name="theme-color"]').content=dark?'#1b1a18':'#f4f1ec';setStatus(dark?'Tema escuro ativado.':'Tema claro ativado.');if(window.KoiPond?.kick)window.KoiPond.kick();});
 })();
